@@ -30,6 +30,53 @@ client-visible environment variables.
 7. Configure and test production email delivery and verification templates
    before inviting real users. Do not assume local Auth email delivery behaves
    like hosted Auth.
+8. Configure bot protection. Enable Turnstile in Supabase → Authentication →
+   Attack Protection and paste the **secret** of the Turnstile widget whose
+   **site key** is set as `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in Vercel. The two
+   must come from the same widget: a site key paired with another widget's
+   secret makes every captcha-protected submit answer `captcha_failed`, which
+   surfaces to the user as "the bot check could not be verified". Add
+   `isbulkktc.com` to the widget's allowed hostnames.
+9. Configure the social providers you intend to offer (see
+   `docs/oauth-providers.md`). Each one needs its provider-console application,
+   its client ID/secret pasted into Supabase → Authentication → Providers, and
+   its name added to `AUTH_OAUTH_PROVIDERS` in Vercel. Finish the Supabase step
+   first: advertising a provider before it is enabled only produces a button
+   that fails at the provider.
+
+After the first deploy, confirm all of the above from the deployed project:
+
+```bash
+SUPABASE_ACCESS_TOKEN=... NEXT_PUBLIC_TURNSTILE_SITE_KEY=... \
+AUTH_OAUTH_PROVIDERS=google,linkedin_oidc,facebook npm run auth:verify
+```
+
+The check reads the hosted Auth configuration and then probes the live auth
+endpoint with an invalid captcha token, so it reports the secret GoTrue actually
+uses (the Management API read can lag a write). It fails on a captcha secret
+GoTrue rejects, an advertised-but-disabled provider, a provider without a client
+ID, or a production callback missing from the redirect allowlist. Run it after
+any auth-console change; it is the only check that can see these settings,
+because they live outside the repository.
+
+To fix a rejected Turnstile secret, copy the widget's Secret Key from the
+Cloudflare dashboard and let the script validate it before it is stored — it
+refuses a secret Cloudflare does not recognise, so a broken widget cannot be
+configured silently:
+
+```bash
+TURNSTILE_SECRET=... SUPABASE_ACCESS_TOKEN=... npm run auth:set-turnstile-secret
+npm run auth:verify   # expect no ❌
+```
+
+While the secret is wrong, captcha blocks **every** auth request
+(`captcha_failed`, `invalid-input-secret`), so nobody can sign in. Bot
+protection that rejects everyone protects nothing; if the correct secret is not
+at hand, take the service back up first and re-enable captcha afterwards:
+
+```bash
+SUPABASE_ACCESS_TOKEN=... node scripts/set-turnstile-secret.mjs --disable
+```
 
 ## 2. Apply database migrations safely
 

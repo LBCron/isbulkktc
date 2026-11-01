@@ -40,6 +40,25 @@ review requirements still apply.
    approval requirements. When empty, the provider cards remain visible but
    disabled, and email/password remains available.
 
+   Steps 3 and 4 can be done from a terminal instead of the Supabase dashboard,
+   with the provider's client id and secret passed as environment variables so
+   they never land in shell history:
+
+   ```bash
+   OAUTH_CLIENT_ID=... OAUTH_CLIENT_SECRET=... SUPABASE_ACCESS_TOKEN=... \
+     npm run auth:enable-provider -- google
+   ```
+
+   The script confirms the write the only way that cannot be stale: it calls
+   `GET /auth/v1/authorize?provider=google` and requires a redirect to the
+   provider's login host. A provider that is enabled in the config but still
+   answers `provider is not enabled` fails the command, which is the signal that
+   the provider console is missing Supabase's callback URI.
+
+   Remember the provider console's own publishing state: a Google consent screen
+   left in "Testing" only admits addresses on its test-user list, and its refresh
+   tokens expire after seven days. Publish the app before going live.
+
 ## Provider-specific requirements
 
 - **Google:** configure the OAuth consent screen and web client in Google Cloud.
@@ -90,3 +109,60 @@ set `PLAYWRIGHT_AUTH_OAUTH_PROVIDERS` to an allowed provider in the E2E runner.
 A visible button is not proof of a live integration; test OAuth itself only
 after its application, Supabase callback, and redirect allowlist are configured
 in a non-production environment.
+
+## Troubleshooting
+
+### The social buttons are disabled and the page says "awaiting setup"
+
+This is the intended state when a provider is not configured. A button is
+enabled only when both are true:
+
+1. Supabase → Authentication → Providers has the provider enabled with its
+   client ID and secret (and its status is not "not configured").
+2. The deployed app lists it in `AUTH_OAUTH_PROVIDERS` (comma-separated, e.g.
+   `google,linkedin_oidc,facebook`).
+
+Listing a provider in `AUTH_OAUTH_PROVIDERS` before its Supabase configuration
+is complete only produces a button that fails at the provider — finish the
+Supabase and provider-console steps first. Verify the Supabase side directly:
+
+```bash
+curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  "https://api.supabase.com/v1/projects/<project-ref>/config/auth" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); \
+print({k: d[k] for k in d if k.endswith('_enabled') and 'external_' in k})"
+```
+
+Every `external_<provider>_enabled` must be `true` and its `client_id` must be
+non-empty.
+
+### The bot check fails with "we could not verify the bot protection"
+
+Supabase verifies the Turnstile token server-side. Run `npm run auth:verify`
+first — it calls Cloudflare's `siteverify` with the stored secret and reports a
+rejected one directly. If it reports `invalid-input-secret`, the secret is wrong
+(or from another widget) and **every** auth request fails, so no user can sign in
+at all. The usual causes are:
+
+- **The stored secret is not valid.** Confirm it with Cloudflare and store it
+  only through the validating script, which refuses a secret Cloudflare rejects:
+
+  ```bash
+  TURNSTILE_SECRET=<the widget's Secret Key> SUPABASE_ACCESS_TOKEN=<sbp_…> \
+    npm run auth:set-turnstile-secret
+  ```
+
+  While the secret is wrong, captcha protects nothing yet blocks everyone. If the
+  correct secret is not at hand, disable it first so sign-in works again:
+  `node scripts/set-turnstile-secret.mjs --disable`.
+- **The site key and the Supabase secret are not from the same Turnstile
+  widget.** Check that `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in the deployment belongs
+  to the widget whose secret is stored under Supabase → Authentication → Attack
+  Protection.
+- **The token was already used.** A Turnstile token is single-use and expires
+  after ~5 minutes. The auth forms reset the widget on every submit so a retry
+  gets a fresh token; if the failure persists, confirm the deployed build
+  includes that reset (`useCaptchaAction`).
+- **The hostname is not allowed on the widget.** Add the production hostname to
+  the widget's allowed hostnames in the Cloudflare dashboard.
+
