@@ -7,8 +7,12 @@
 //      A mismatch makes every captcha-protected submit answer `captcha_failed`,
 //      which is exactly the failure this guard exists to surface.
 //   2. Supabase OAuth providers — every provider the app advertises in
-//      `AUTH_OAUTH_PROVIDERS` must be enabled in Supabase with a client id, or
-//      the login page renders a button that fails at the provider.
+//      `AUTH_OAUTH_PROVIDERS` must be enabled in Supabase with a client id *and*
+//      a secret that belongs to it. An enabled provider with a wrong secret still
+//      answers the authorize redirect and then fails the token exchange with
+//      `invalid_client` at sign-in, so the recent auth logs are checked for that
+//      signature (the Management API only ever returns a *hash* of a secret, so
+//      it cannot prove one).
 //   3. Redirect allowlist — the production callback must be allowed, or OAuth
 //      and email confirmation links land on a `redirect_to` error.
 //
@@ -29,7 +33,7 @@
 const SUPABASE_API = "https://api.supabase.com/v1";
 
 /** Providers Supabase exposes and this app is allowed to advertise. */
-export const SUPPORTED_OAUTH_PROVIDERS = ["google", "linkedin_oidc", "facebook"];
+export const SUPPORTED_OAUTH_PROVIDERS = ["google", "linkedin_oidc"];
 
 /** Parses `AUTH_OAUTH_PROVIDERS`, dropping blanks and unknown names. */
 export function parseAdvertisedProviders(raw) {
@@ -80,11 +84,11 @@ export function evaluateTurnstileSecret(reply) {
 }
 
 /**
- * True when a stored client id could plausibly be a real one. All three
- * supported providers issue ids that contain digits (Google prefixes the project
- * number, LinkedIn and Facebook ids are numeric), so a word like `ISBULKKTC` is a
- * placeholder that GoTrue will happily forward to the provider and fail there.
- * The emptiness check alone let exactly that through and reported "configured".
+ * True when a stored client id could plausibly be a real one. Both supported
+ * providers issue ids that contain digits (Google prefixes the project number,
+ * LinkedIn ids are numeric), so a word like `ISBULKKTC` is a placeholder that
+ * GoTrue will happily forward to the provider and fail there. The emptiness
+ * check alone let exactly that through and reported "configured".
  */
 export function looksLikeOAuthClientId(provider, value) {
   if (typeof value !== "string") return false;
@@ -117,6 +121,90 @@ export function evaluateOAuthProviders(providers, authConfig) {
     }
   }
   return problems;
+}
+
+/**
+ * Reads recent production auth logs for the signature of a failed OAuth token
+ * exchange.
+ *
+ * The Management API cannot validate a provider secret: it returns a
+ * deterministic *hash* of the stored value, never the value itself, so no probe
+ * can send it to a provider and learn whether it matches. (Verified: writing
+ * `PLAINTEXT-PROBE-12345` and reading it back yields a 64-hex digest, stable for
+ * the same input.) GoTrue, however, logs the real outcome of every exchange. A
+ * secret that does not belong to the client id produces exactly:
+ *
+ *   error: oauth2: "invalid_client" "The provided client secret is invalid."
+ *   msg:   500: Unable to exchange external code: <code>
+ *   path:  /callback
+ *
+ * Surfacing that in the deploy report turns "social sign-in is broken" from a
+ * user report into a finding. A quiet window means the last exchange succeeded —
+ * or that nobody tried — so it is a note, never a hard pass on credentials.
+ */
+export function evaluateRecentOAuthErrors(rows) {
+  if (!Array.isArray(rows)) {
+    return {
+      state: "unknown",
+      ok: false,
+      reason: "Recent auth logs could not be interpreted.",
+    };
+  }
+  const matches = rows.filter((row) => {
+    const message = String(row?.event_message ?? "");
+    return (
+      message.includes('"path":"/callback"') &&
+      (message.includes("invalid_client") ||
+        message.includes("Unable to exchange external code"))
+    );
+  });
+  if (matches.length === 0) {
+    return {
+      state: "clean",
+      ok: true,
+      reason: "No failed OAuth token exchange in the recent auth logs.",
+    };
+  }
+  const latest = matches[0]?.timestamp ?? "";
+  return {
+    state: "failing",
+    ok: false,
+    reason:
+      `${matches.length} failed OAuth token exchange(s) in the recent auth logs` +
+      `${latest ? ` (latest ${latest})` : ""} — the stored provider secret does not ` +
+      `match its client id.`,
+  };
+}
+
+/** Fetches the recent auth log window and looks for failed token exchanges. */
+export async function probeRecentOAuthErrors(token, projectRef, windowMinutes = 60) {
+  const end = new Date();
+  const start = new Date(end.getTime() - windowMinutes * 60_000);
+  const params = new URLSearchParams({
+    sql: "select timestamp, event_message from logs order by timestamp desc limit 1000",
+    iso_timestamp_start: start.toISOString(),
+    iso_timestamp_end: end.toISOString(),
+  });
+  try {
+    const { status, body } = await fetchJson(
+      `${SUPABASE_API}/projects/${projectRef}/analytics/endpoints/logs?${params}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (status !== 200 || !Array.isArray(body?.result)) {
+      return {
+        state: "unknown",
+        ok: false,
+        reason: `Recent auth logs could not be read (HTTP ${status}).`,
+      };
+    }
+    return evaluateRecentOAuthErrors(body.result);
+  } catch {
+    return {
+      state: "unknown",
+      ok: false,
+      reason: "Recent auth logs could not be reached.",
+    };
+  }
 }
 
 /** True when the production callback is covered by the redirect allowlist. */
@@ -255,12 +343,22 @@ export async function verifyCaptchaLive(token, projectRef) {
   return probeCaptchaSecret(projectRef, anonKey);
 }
 
-/** Hosts a provider's authorize redirect may land on. */
+/**
+ * Hosts a provider's authorize redirect may land on. An entry matches the host
+ * exactly or as a subdomain, so `linkedin.com` covers both `www.linkedin.com`
+ * and `api.linkedin.com` — GoTrue sends LinkedIn to the latter, which an exact
+ * host list missed and read as "redirected somewhere unexpected".
+ */
 const OAUTH_AUTHORIZE_HOSTS = {
   google: ["accounts.google.com"],
-  linkedin_oidc: ["www.linkedin.com", "linkedin.com"],
-  facebook: ["www.facebook.com", "facebook.com", "m.facebook.com"],
+  linkedin_oidc: ["linkedin.com"],
 };
+
+function hostIsAllowed(host, domains) {
+  return domains.some(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  );
+}
 
 /**
  * Reads the outcome of `GET /auth/v1/authorize?provider=…`. A configured
@@ -282,7 +380,7 @@ export function evaluateOAuthAuthorize(provider, status, location) {
       host = null;
     }
     const expected = OAUTH_AUTHORIZE_HOSTS[provider] ?? [];
-    if (host && expected.includes(host)) {
+    if (host && hostIsAllowed(host, expected)) {
       return { ok: true, reason: `${provider} is enabled (authorize redirects to ${host}).` };
     }
     return {
@@ -374,6 +472,16 @@ async function main() {
         if (authorize.ok) notes.push(authorize.reason);
         else failures.push(authorize.reason);
       }
+
+      // A provider can be enabled, hold a well-formed client id, answer the
+      // authorize redirect — and still fail the token exchange because the
+      // stored secret does not belong to that client id. The Management API
+      // cannot prove a secret (it returns a hash, never the value), so the
+      // authoritative signal is GoTrue's own log of the failed exchange.
+      const oauthErrors = await probeRecentOAuthErrors(token, projectRef);
+      if (oauthErrors.ok) notes.push(oauthErrors.reason);
+      else if (oauthErrors.state === "failing") failures.push(oauthErrors.reason);
+      else notes.push(oauthErrors.reason);
 
       if (!callbackIsAllowed(origin, body.uri_allow_list)) {
         failures.push(`${origin}/auth/callback is not in the redirect allowlist.`);

@@ -6,21 +6,22 @@ import {
   evaluateCaptchaProbe,
   evaluateOAuthAuthorize,
   evaluateOAuthProviders,
-  looksLikeOAuthClientId,
+  evaluateRecentOAuthErrors,
   evaluateTurnstileSecret,
+  looksLikeOAuthClientId,
   looksLikeTurnstileSiteKey,
   parseAdvertisedProviders,
 } from "../../scripts/verify-auth-config.mjs";
 import { looksLikeTurnstileSecret } from "../../scripts/set-turnstile-secret.mjs";
 
 test("advertised providers are trimmed, de-duplicated and validated", () => {
-  assert.deepEqual(parseAdvertisedProviders("google, linkedin_oidc ,facebook").providers, [
+  assert.deepEqual(parseAdvertisedProviders("google, linkedin_oidc ,google").providers, [
     "google",
     "linkedin_oidc",
-    "facebook",
   ]);
   assert.deepEqual(parseAdvertisedProviders("google,google").providers, ["google"]);
   assert.deepEqual(parseAdvertisedProviders("google,instagram").unknown, ["instagram"]);
+  assert.deepEqual(parseAdvertisedProviders("google,facebook").unknown, ["facebook"]);
   assert.deepEqual(parseAdvertisedProviders("").providers, []);
   assert.deepEqual(parseAdvertisedProviders(undefined).providers, []);
 });
@@ -102,6 +103,21 @@ test("the live OAuth probe reads the authorize redirect", () => {
     evaluateOAuthAuthorize("linkedin_oidc", 302, "https://www.linkedin.com/oauth/v2/authorization").ok,
     true,
   );
+  // GoTrue sends LinkedIn to api.linkedin.com, not www. An exact host list read
+  // that as "redirected somewhere unexpected" and failed a working provider.
+  assert.equal(
+    evaluateOAuthAuthorize("linkedin_oidc", 302, "https://api.linkedin.com/oauth/v2/authorization?client_id=x").ok,
+    true,
+  );
+  // A lookalike domain must not pass the suffix check.
+  assert.equal(
+    evaluateOAuthAuthorize("linkedin_oidc", 302, "https://evil-linkedin.com/oauth").ok,
+    false,
+  );
+  assert.equal(
+    evaluateOAuthAuthorize("linkedin_oidc", 302, "https://linkedin.com.evil.example/oauth").ok,
+    false,
+  );
   // A redirect to an unexpected host is not proof of a working provider.
   assert.equal(evaluateOAuthAuthorize("google", 302, "https://evil.example/auth").ok, false);
   // An unconfigured provider answers 400.
@@ -112,51 +128,77 @@ test("an advertised provider must be enabled with a client id", () => {
   const config = {
     external_google_enabled: true,
     external_google_client_id: "1021802173200-3atqa9tdtsqjppm0j9uqjc9gnrrjls4i.apps.googleusercontent.com",
-    external_linkedin_oidc_enabled: false,
-    external_linkedin_oidc_client_id: null,
-    external_facebook_enabled: true,
-    external_facebook_client_id: "",
+    external_linkedin_oidc_enabled: true,
+    external_linkedin_oidc_client_id: "",
   };
 
   const problems = evaluateOAuthProviders(
-    ["google", "linkedin_oidc", "facebook"],
+    ["google", "linkedin_oidc"],
     config,
   );
-  assert.equal(problems.length, 2);
-  assert.match(problems.join(" "), /linkedin_oidc is advertised but disabled/);
-  assert.match(problems.join(" "), /facebook is enabled but has no client id/);
+  assert.equal(problems.length, 1);
+  assert.match(problems.join(" "), /linkedin_oidc is enabled but has no client id/);
 });
 
 test("a placeholder client id is reported instead of passing as configured", () => {
-  // LinkedIn and Facebook were stored as "ISBULKKTC" — enabled, non-empty, and
-  // therefore green under the emptiness check, while the live authorize endpoint
-  // forwarded that literal to the provider.
+  // LinkedIn was stored as "ISBULKKTC" — enabled, non-empty, and therefore green
+  // under the emptiness check, while the live authorize endpoint forwarded that
+  // literal to the provider.
   const config = {
     external_linkedin_oidc_enabled: true,
     external_linkedin_oidc_client_id: "ISBULKKTC",
-    external_facebook_enabled: true,
-    external_facebook_client_id: "ISBULKKTC",
   };
-  const problems = evaluateOAuthProviders(["linkedin_oidc", "facebook"], config);
-  assert.equal(problems.length, 2);
+  const problems = evaluateOAuthProviders(["linkedin_oidc"], config);
+  assert.equal(problems.length, 1);
   assert.match(problems.join(" "), /linkedin_oidc is enabled but its client id "ISBULKKTC" looks like a placeholder/);
-  assert.match(problems.join(" "), /facebook is enabled but its client id "ISBULKKTC" looks like a placeholder/);
 
   assert.equal(looksLikeOAuthClientId("linkedin_oidc", "ISBULKKTC"), false);
-  assert.equal(looksLikeOAuthClientId("facebook", ""), false);
-  assert.equal(looksLikeOAuthClientId("facebook", "short"), false);
+  assert.equal(looksLikeOAuthClientId("linkedin_oidc", ""), false);
+  assert.equal(looksLikeOAuthClientId("linkedin_oidc", "short"), false);
   assert.equal(looksLikeOAuthClientId("linkedin_oidc", "78a1b2c3d4e5"), true);
-  assert.equal(looksLikeOAuthClientId("facebook", "1234567890123456"), true);
 });
 
 test("a fully configured provider set passes", () => {
   const config = {
     external_google_enabled: true,
     external_google_client_id: "1021802173200-3atqa9tdtsqjppm0j9uqjc9gnrrjls4i.apps.googleusercontent.com",
-    external_facebook_enabled: true,
-    external_facebook_client_id: "1234567890123456",
+    external_linkedin_oidc_enabled: true,
+    external_linkedin_oidc_client_id: "78a1b2c3d4e5",
   };
-  assert.deepEqual(evaluateOAuthProviders(["google", "facebook"], config), []);
+  assert.deepEqual(evaluateOAuthProviders(["google", "linkedin_oidc"], config), []);
+});
+
+test("recent auth logs expose a failed OAuth token exchange", () => {
+  // The exact line production logged while the secret was a placeholder.
+  const failing = [
+    {
+      timestamp: "2026-11-01T09:35:07Z",
+      event_message:
+        '{"component":"api","error":"oauth2: \\"invalid_client\\" \\"The provided client secret is invalid.\\"","level":"error","msg":"500: Unable to exchange external code: 4/0A","path":"/callback"}',
+    },
+  ];
+  assert.equal(evaluateRecentOAuthErrors(failing).state, "failing");
+  assert.equal(evaluateRecentOAuthErrors(failing).ok, false);
+
+  // A healthy window: authorize redirects and successful callbacks only.
+  const clean = [
+    {
+      timestamp: "2026-11-01T11:31:01Z",
+      event_message:
+        '{"component":"api","level":"info","msg":"Redirecting to external provider","path":"/authorize","provider":"google"}',
+    },
+    {
+      timestamp: "2026-11-01T11:31:02Z",
+      event_message:
+        '{"component":"api","duration":123,"level":"info","msg":"request completed","path":"/callback","status":302}',
+    },
+  ];
+  assert.equal(evaluateRecentOAuthErrors(clean).state, "clean");
+  assert.equal(evaluateRecentOAuthErrors(clean).ok, true);
+
+  // A malformed payload must not be mistaken for a healthy one.
+  assert.equal(evaluateRecentOAuthErrors(null).state, "unknown");
+  assert.equal(evaluateRecentOAuthErrors("nope").state, "unknown");
 });
 
 test("the production callback is recognized in the allowlist", () => {
