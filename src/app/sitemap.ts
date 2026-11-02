@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { newestJobModifiedAt } from "@/features/jobs/sitemap-lastmod";
 import { routing } from "@/i18n/routing";
 import { getLocalizedPageUrl } from "@/lib/seo";
 import { getAppBaseUrl } from "@/server/config/app-url";
@@ -34,10 +35,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const jobs = await listPublicJobSitemapEntries();
 
-  const newestJobDate = jobs.reduce<Date | null>((newest, job) => {
-    const published = new Date(job.publishedAt);
-    return newest === null || published > newest ? published : newest;
-  }, null);
+  // The listing routes advertise the newest vacancy `<lastmod>`, so it must be
+  // the same instant the vacancy entries below carry (`modifiedAt`). See
+  // `newestJobModifiedAt`.
+  const newestJobDate = newestJobModifiedAt(jobs);
 
   const staticEntries: MetadataRoute.Sitemap = publicPages.flatMap(
     ({ pathname, changeFrequency, priority }) => {
