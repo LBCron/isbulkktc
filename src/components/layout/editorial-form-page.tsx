@@ -13,8 +13,11 @@ type EditorialFormPageProps = {
   storyEyebrow: string;
   storyTitle: string;
   storyBody: string;
-  sceneMediaLabel?: string;
-  sceneVideoUnavailable?: string;
+  // Required, not optional: the scene panel is the page's identity, so a caller
+  // that forgets these would render an empty dark column (this shipped once on
+  // /company/new). Making them mandatory turns the omission into a type error.
+  sceneMediaLabel: string;
+  sceneVideoUnavailable: string;
   variant?: "account" | "company";
 };
 
@@ -61,12 +64,10 @@ export function EditorialFormPage({
             <h2>{storyTitle}</h2>
             <p>{storyBody}</p>
           </div>
-          {sceneMediaLabel && sceneVideoUnavailable ? (
-            <AccountSceneMedia
-              label={sceneMediaLabel}
-              videoUnavailable={sceneVideoUnavailable}
-            />
-          ) : null}
+          <AccountSceneMedia
+            label={sceneMediaLabel}
+            videoUnavailable={sceneVideoUnavailable}
+          />
           <span className="editorial-page-scene-index" aria-hidden="true">
             NORTH CYPRUS&nbsp; / &nbsp;ISB
           </span>

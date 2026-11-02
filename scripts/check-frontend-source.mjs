@@ -448,6 +448,14 @@ for (const name of sceneVideos) {
     av1.length < 12_000_000 && h264.length < 12_000_000,
     `Account scene video ${name} exceeds the 12 MB budget per file.`,
   );
+  // AV1 exists to beat H.264 on bytes at equal-or-better quality. Two clips once
+  // shipped AV1 *larger* than their H.264 fallback (up to 1.40x) because they
+  // were encoded at a higher bitrate, so the modern codec was pure extra weight
+  // for browsers that pick it. Keep AV1 strictly smaller.
+  assert.ok(
+    av1.length < h264.length,
+    `Account scene video ${name}.av1.mp4 (${av1.length}B) must be smaller than its H.264 fallback (${h264.length}B); the AV1 encode is wasting bytes.`,
+  );
   assert.equal(av1.toString("latin1", 4, 8), "ftyp");
   assert.equal(h264.toString("latin1", 4, 8), "ftyp");
   assert.ok(isFastStart(av1), `${name}.av1.mp4 must be faststart (moov first).`);
@@ -467,6 +475,50 @@ assert.match(accountSceneMedia, /av01\.0\.04M\.08/);
 assert.match(accountSceneMedia, /avc1\.640028/);
 assert.match(accountSceneMedia, /sources\.map/);
 assert.match(accountSceneMedia, /poster=\{videos\[activeVideoIndex\]\.poster\}/);
+
+// The editorial scene panel is part of every EditorialFormPage caller's
+// identity. `/company/new` once omitted the two scene props, so the dark column
+// rendered with no photos or video at all — a gap no other check caught because
+// the props were optional and no E2E spec covered that route. Require both props
+// in the component signature and at every call site.
+const editorialFormPage = await read(
+  "src/components/layout/editorial-form-page.tsx",
+);
+assert.match(
+  editorialFormPage,
+  /sceneMediaLabel:\s*string;/,
+  "EditorialFormPage must declare sceneMediaLabel as a required string prop.",
+);
+assert.match(
+  editorialFormPage,
+  /sceneVideoUnavailable:\s*string;/,
+  "EditorialFormPage must declare sceneVideoUnavailable as a required string prop.",
+);
+assert.doesNotMatch(
+  editorialFormPage,
+  /sceneMediaLabel\?:/,
+  "sceneMediaLabel must stay required so a caller cannot silently drop the scene media.",
+);
+const editorialFormCallers = [
+  "src/app/[locale]/(auth)/login/page.tsx",
+  "src/app/[locale]/(auth)/register/page.tsx",
+  "src/app/[locale]/(auth)/forgot-password/page.tsx",
+  "src/app/[locale]/(auth)/reset-password/page.tsx",
+  "src/app/[locale]/(company)/company/new/page.tsx",
+];
+for (const caller of editorialFormCallers) {
+  const source = await read(caller);
+  assert.match(
+    source,
+    /sceneMediaLabel=\{/,
+    `${caller} must pass sceneMediaLabel so the scene panel shows its photos and video.`,
+  );
+  assert.match(
+    source,
+    /sceneVideoUnavailable=\{/,
+    `${caller} must pass sceneVideoUnavailable so the scene panel can report a broken clip.`,
+  );
+}
 assert.match(css, /\.editorial-hero\s*\{[\s\S]*?minmax\(300px,\s*0\.9fr\)/);
 assert.match(css, /\.home-page \.hero-photo-image \{\s*transform: none;/);
 assert.doesNotMatch(css, /\.hero-scene-window|\.hero-scene-foliage/);

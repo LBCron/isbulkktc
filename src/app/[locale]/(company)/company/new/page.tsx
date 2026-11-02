@@ -25,6 +25,8 @@ export default async function NewCompanyPage() {
       backLabel={copy("back")}
       description={copy("description")}
       eyebrow={copy("eyebrow", { name: user.displayName })}
+      sceneMediaLabel={copy("sceneMediaLabel")}
+      sceneVideoUnavailable={copy("sceneVideoUnavailable")}
       storyBody={copy("storyBody")}
       storyEyebrow={copy("storyEyebrow")}
       storyTitle={copy("storyTitle")}
