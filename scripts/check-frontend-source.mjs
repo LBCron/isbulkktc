@@ -499,6 +499,31 @@ assert.doesNotMatch(
   /sceneMediaLabel\?:/,
   "sceneMediaLabel must stay required so a caller cannot silently drop the scene media.",
 );
+// The props being required is not enough: the component could still receive them
+// and never forward them, or gate the panel behind a condition (the original bug
+// was `{sceneMediaLabel && sceneVideoUnavailable ? … : null}`). Assert the three
+// invariants separately rather than one whitespace-exact regex, so adding an
+// unrelated prop to `AccountSceneMedia` does not fail the gate for no reason.
+assert.match(
+  editorialFormPage,
+  /<AccountSceneMedia/,
+  "EditorialFormPage must render AccountSceneMedia so the scene panel mounts.",
+);
+assert.match(
+  editorialFormPage,
+  /label=\{sceneMediaLabel\}/,
+  "EditorialFormPage must forward sceneMediaLabel to AccountSceneMedia.",
+);
+assert.match(
+  editorialFormPage,
+  /videoUnavailable=\{sceneVideoUnavailable\}/,
+  "EditorialFormPage must forward sceneVideoUnavailable to AccountSceneMedia.",
+);
+assert.doesNotMatch(
+  editorialFormPage,
+  /sceneMediaLabel\s*&&/,
+  "the scene panel must not be gated behind a truthiness check on its own props.",
+);
 const editorialFormCallers = [
   "src/app/[locale]/(auth)/login/page.tsx",
   "src/app/[locale]/(auth)/register/page.tsx",
