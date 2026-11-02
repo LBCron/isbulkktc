@@ -836,6 +836,9 @@
     "coverLetterPlaceholder": "به‌اختصار توضیح دهید چرا برای این موقعیت مناسب هستید.",
     "coverLetterHint": "حداکثر ۵۰۰۰ نویسه. پیش از ارسال اطلاعات را بررسی کنید.",
     "shareContactEmail": "موافقم ایمیل حسابم از طریق این درخواست در اختیار کارفرما قرار گیرد. این رضایت اختیاری است.",
+    "contactEmailLabel": "ایمیلی که برای کارفرما ارسال میشود",
+    "contactEmailUnverifiedNote": "این نشانی هنوز تأیید نشده است.",
+    "verifyEmailAction": "ارسال دوبارهٔ ایمیل تأیید",
     "submit": "ارسال درخواست",
     "submitting": "در حال ارسال…",
     "loginAction": "ورود",
@@ -845,6 +848,7 @@
       "unauthorized": "برای درخواست، وارد شوید و پروفایل متقاضی ایجاد کنید.",
       "applyFailed": "ارسال درخواست ممکن نشد. کمی بعد دوباره تلاش کنید.",
       "applied": "درخواست شما با موفقیت ارسال شد.",
+      "contactEmailUnverified": "این نشانی ایمیل تأیید نشده است و نمیتوان آن را به اشتراک گذاشت. پیوند تأیید را در صندوق ورودی خود باز کنید و دوباره تلاش کنید.",
       "duplicate": "پیش‌تر برای این موقعیت درخواست داده‌اید.",
       "transitionFailed": "وضعیت درخواست به‌روزرسانی نشد.",
       "updated": "وضعیت درخواست به‌روزرسانی شد."
@@ -902,11 +906,6 @@
   "CandidateDashboard": {
     "eyebrow": "پروفایل متقاضی",
     "title": "خوش آمدید، {name}.",
-    "accountTitle": "اطلاعات حساب",
-    "accountSyncedNote": "نام و تصویر پروفایل از حساب شبکه اجتماعی شما وارد شد.",
-    "accountValueMissing": "—",
-    "givenNameLabel": "نام",
-    "familyNameLabel": "نام خانوادگی",
     "fullNameLabel": "نام و نام خانوادگی",
     "fullNamePlaceholder": "نام و نام خانوادگی شما",
     "fullNameHint": "۲ تا ۸۰ نویسه. در عنوان پروفایل نمایش داده می‌شود.",
@@ -1035,6 +1034,17 @@
         "unreadable": "خواندن فایل ممکن نشد. یک فایل متنی PDF یا DOCX دیگر را امتحان کنید."
       }
     }
+  },
+  "AccountPanel": {
+    "title": "اطلاعات حساب",
+    "givenNameLabel": "نام",
+    "familyNameLabel": "نام خانوادگی",
+    "emailVerified": "تأییدشده",
+    "emailUnverified": "تأییدنشده",
+    "signInMethodsLabel": "روش ورود",
+    "signInMethodEmail": "ایمیل",
+    "valueMissing": "—",
+    "syncedNote": "نام و تصویر پروفایل از حساب اجتماعی شما گرفته شد."
   },
   "CompanyManagement": {
     "eyebrow": "فضای کارفرما",

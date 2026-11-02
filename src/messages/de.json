@@ -836,6 +836,9 @@
     "coverLetterPlaceholder": "Erklären Sie kurz, warum Sie für diese Stelle geeignet sind.",
     "coverLetterHint": "Bis zu 5.000 Zeichen. Prüfen Sie Ihre Angaben vor dem Absenden.",
     "shareContactEmail": "Ich stimme zu, dem Arbeitgeber meine Konto-E-Mail-Adresse in dieser Bewerbung mitzuteilen. Dies ist freiwillig.",
+    "contactEmailLabel": "E-Mail für den Arbeitgeber",
+    "contactEmailUnverifiedNote": "Diese Adresse ist noch nicht bestätigt.",
+    "verifyEmailAction": "Bestätigungs-E-Mail erneut senden",
     "submit": "Bewerbung senden",
     "submitting": "Wird gesendet…",
     "loginAction": "Anmelden",
@@ -845,6 +848,7 @@
       "unauthorized": "Melden Sie sich an und erstellen Sie ein Bewerberprofil, bevor Sie sich bewerben.",
       "applyFailed": "Ihre Bewerbung konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.",
       "applied": "Ihre Bewerbung wurde erfolgreich gesendet.",
+      "contactEmailUnverified": "Diese E-Mail-Adresse ist nicht bestätigt und kann daher nicht geteilt werden. Öffnen Sie den Bestätigungslink in Ihrem Postfach und versuchen Sie es erneut.",
       "duplicate": "Sie haben sich bereits auf diese Stelle beworben.",
       "transitionFailed": "Der Bewerbungsstatus konnte nicht geändert werden.",
       "updated": "Der Bewerbungsstatus wurde aktualisiert."
@@ -902,11 +906,6 @@
   "CandidateDashboard": {
     "eyebrow": "BEWERBERPROFIL",
     "title": "Willkommen, {name}.",
-    "accountTitle": "Kontodaten",
-    "accountSyncedNote": "Name und Profilbild wurden aus Ihrem sozialen Konto übernommen.",
-    "accountValueMissing": "—",
-    "givenNameLabel": "Vorname",
-    "familyNameLabel": "Nachname",
     "fullNameLabel": "Vollständiger Name",
     "fullNamePlaceholder": "Ihr Vor- und Nachname",
     "fullNameHint": "2–80 Zeichen. Erscheint in Ihrer Profilüberschrift.",
@@ -1035,6 +1034,17 @@
         "unreadable": "Die Datei konnte nicht gelesen werden. Versuchen Sie es mit einer anderen textbasierten PDF- oder DOCX-Datei."
       }
     }
+  },
+  "AccountPanel": {
+    "title": "Kontodetails",
+    "givenNameLabel": "Vorname",
+    "familyNameLabel": "Nachname",
+    "emailVerified": "Bestätigt",
+    "emailUnverified": "Nicht bestätigt",
+    "signInMethodsLabel": "Anmeldeweg",
+    "signInMethodEmail": "E-Mail",
+    "valueMissing": "—",
+    "syncedNote": "Name und Profilbild wurden aus Ihrem sozialen Konto übernommen."
   },
   "CompanyManagement": {
     "eyebrow": "ARBEITGEBERBEREICH",

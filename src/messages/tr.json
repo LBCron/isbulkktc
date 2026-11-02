@@ -836,6 +836,9 @@
     "coverLetterPlaceholder": "Bu pozisyon için uygunluğunuzu kısaca paylaşın.",
     "coverLetterHint": "En fazla 5.000 karakter. Göndermeden önce bilgilerinizi kontrol edin.",
     "shareContactEmail": "İşverenin başvurum üzerinden kayıtlı e-posta adresimi görmesine izin veriyorum. Bu onay isteğe bağlıdır.",
+    "contactEmailLabel": "Başvuruda paylaşılacak e-posta",
+    "contactEmailUnverifiedNote": "Bu adres henüz doğrulanmadı.",
+    "verifyEmailAction": "Doğrulama e-postasını yeniden gönder",
     "submit": "Başvuruyu gönder",
     "submitting": "Gönderiliyor…",
     "loginAction": "Giriş yapın",
@@ -845,6 +848,7 @@
       "unauthorized": "Başvuru için giriş yapmanız ve aday profilinizi oluşturmanız gerekir.",
       "applyFailed": "Başvurunuz gönderilemedi. Lütfen biraz sonra tekrar deneyin.",
       "applied": "Başvurunuz başarıyla iletildi.",
+      "contactEmailUnverified": "Bu e-posta adresi doğrulanmadığı için paylaşılamadı. Gelen kutunuzdaki doğrulama bağlantısını açıp tekrar deneyin.",
       "duplicate": "Bu ilana daha önce başvurdunuz.",
       "transitionFailed": "Başvuru durumu güncellenemedi.",
       "updated": "Başvuru durumu güncellendi."
@@ -902,11 +906,6 @@
   "CandidateDashboard": {
     "eyebrow": "ADAY PROFİLİ",
     "title": "Merhaba, {name}.",
-    "accountTitle": "Hesap bilgileri",
-    "accountSyncedNote": "Ad, soyad ve profil fotoğrafı sosyal hesabınızdan alındı.",
-    "accountValueMissing": "—",
-    "givenNameLabel": "Ad",
-    "familyNameLabel": "Soyad",
     "fullNameLabel": "Ad Soyad",
     "fullNamePlaceholder": "Adınız ve soyadınız",
     "fullNameHint": "2–80 karakter. Profil başlığınızda görünür.",
@@ -1035,6 +1034,17 @@
         "unreadable": "Dosya okunamadı. Metin tabanlı başka bir PDF veya DOCX deneyin."
       }
     }
+  },
+  "AccountPanel": {
+    "title": "Hesap bilgileri",
+    "givenNameLabel": "Ad",
+    "familyNameLabel": "Soyad",
+    "emailVerified": "Doğrulandı",
+    "emailUnverified": "Doğrulanmadı",
+    "signInMethodsLabel": "Giriş yöntemi",
+    "signInMethodEmail": "E-posta",
+    "valueMissing": "—",
+    "syncedNote": "Ad, soyad ve profil fotoğrafı sosyal hesabınızdan alındı."
   },
   "CompanyManagement": {
     "eyebrow": "İŞVEREN ALANI",

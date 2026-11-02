@@ -3,6 +3,7 @@ import { getAppBaseUrl } from "@/server/config/app-url";
 import { createSupabaseServerClient } from "@/server/db/supabase-server";
 import { getLocalePrefix, routing, type AppLocale } from "@/i18n/routing";
 import { sendWelcomeEmail } from "@/server/email/mailer";
+import { deriveDisplayName } from "@/features/identity/oauth-claims";
 import type { WelcomeAudience } from "../../../../../supabase/functions/_shared/email-render.ts";
 import {
   audienceFromCallbackParam,
@@ -44,10 +45,7 @@ async function greetNewAccount(input: {
       to: input.email,
       audience: input.audience,
       locale: input.locale,
-      name:
-        (input.user.user_metadata?.display_name as string | undefined) ??
-        (input.user.user_metadata?.full_name as string | undefined) ??
-        null,
+      name: deriveDisplayName(input.user.user_metadata),
       userId: input.user.id,
     });
   } catch (mailError) {

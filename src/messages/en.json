@@ -836,6 +836,9 @@
     "coverLetterPlaceholder": "Briefly tell the employer why you are a good fit.",
     "coverLetterHint": "Up to 5,000 characters. Review your details before sending.",
     "shareContactEmail": "I agree to share my account email with this employer through my application. This is optional.",
+    "contactEmailLabel": "E-mail shared with the employer",
+    "contactEmailUnverifiedNote": "This address is not verified yet.",
+    "verifyEmailAction": "Resend the verification e-mail",
     "submit": "Submit application",
     "submitting": "Submitting…",
     "loginAction": "Sign in",
@@ -845,6 +848,7 @@
       "unauthorized": "Sign in and create a candidate profile before applying.",
       "applyFailed": "Your application could not be sent. Please try again shortly.",
       "applied": "Your application was sent successfully.",
+      "contactEmailUnverified": "This e-mail address is not verified, so it cannot be shared. Open the verification link in your inbox and try again.",
       "duplicate": "You have already applied for this role.",
       "transitionFailed": "The application status could not be updated.",
       "updated": "The application status was updated."
@@ -902,11 +906,6 @@
   "CandidateDashboard": {
     "eyebrow": "CANDIDATE PROFILE",
     "title": "Welcome, {name}.",
-    "accountTitle": "Account details",
-    "accountSyncedNote": "Your name and profile photo were imported from your social account.",
-    "accountValueMissing": "—",
-    "givenNameLabel": "First name",
-    "familyNameLabel": "Last name",
     "fullNameLabel": "Full name",
     "fullNamePlaceholder": "Your first and last name",
     "fullNameHint": "2–80 characters. Shown in your profile heading.",
@@ -1035,6 +1034,17 @@
         "unreadable": "This file could not be read. Try another text-based PDF or DOCX file."
       }
     }
+  },
+  "AccountPanel": {
+    "title": "Account details",
+    "givenNameLabel": "First name",
+    "familyNameLabel": "Last name",
+    "emailVerified": "Verified",
+    "emailUnverified": "Unverified",
+    "signInMethodsLabel": "Sign-in method",
+    "signInMethodEmail": "Email",
+    "valueMissing": "—",
+    "syncedNote": "Your name and profile photo were imported from your social account."
   },
   "CompanyManagement": {
     "eyebrow": "EMPLOYER WORKSPACE",

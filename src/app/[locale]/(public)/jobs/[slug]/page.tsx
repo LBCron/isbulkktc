@@ -8,6 +8,7 @@ import { routing } from "@/i18n/routing";
 import { createLocalizedPageMetadata } from "@/lib/seo";
 import { getAppBaseUrl } from "@/server/config/app-url";
 import { getPublicJobBySlug } from "@/server/dal/jobs";
+import { getCurrentUser } from "@/server/dal/user";
 
 type JobDetailPageProps = {
   params: Promise<{ locale: string; slug: string }>;
@@ -50,6 +51,24 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
   const job = await getPublicJobBySlug(validSlug.data);
   if (!job) notFound();
 
+  // The apply form names the address an employer would receive, so it needs the
+  // viewer's own identity — the page is dynamic (`ƒ /[locale]/jobs/[slug]`), so
+  // reading the session costs nothing extra. It fails closed like the header
+  // action does: `getCurrentUser` throws when a signed-in account has a missing
+  // or invalid profile, and a public listing must not answer 500 for that.
+  let viewerContact: { email: string | null; emailConfirmed: boolean } | null = null;
+  try {
+    const viewer = await getCurrentUser();
+    if (viewer) {
+      viewerContact = {
+        email: viewer.email,
+        emailConfirmed: viewer.emailConfirmed,
+      };
+    }
+  } catch {
+    viewerContact = null;
+  }
+
   const jobPostingStructuredData = buildJobPostingStructuredData({
     job,
     baseUrl: getAppBaseUrl(),
@@ -66,7 +85,11 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           ),
         }}
       />
-      <JobDetailExperience locale={locale} job={job} />
+      <JobDetailExperience
+        locale={locale}
+        job={job}
+        viewerContact={viewerContact}
+      />
     </>
   );
 }

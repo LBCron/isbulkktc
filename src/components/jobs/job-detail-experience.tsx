@@ -15,9 +15,11 @@ import type { PublicJobListing } from "@/server/dal/jobs";
 export async function JobDetailExperience({
   locale,
   job,
+  viewerContact,
 }: {
   locale: AppLocale;
   job: PublicJobListing;
+  viewerContact: { email: string | null; emailConfirmed: boolean } | null;
 }) {
   const [t, searchCopy] = await Promise.all([
     getTranslations({ locale, namespace: "JobDetail" }),
@@ -111,7 +113,7 @@ export async function JobDetailExperience({
             </div>
             <aside className="job-detail-aside">
               {job.publication_source === "platform" ? (
-                <JobApplicationForm jobId={job.id} />
+                <JobApplicationForm contact={viewerContact} jobId={job.id} />
               ) : null}
               <section className="job-detail-company-card">
                 <span>{t("companyLabel")}</span>
