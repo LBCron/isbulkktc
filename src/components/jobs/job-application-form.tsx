@@ -17,11 +17,12 @@ export function JobApplicationForm({
   const t = useTranslations("JobApplication");
   const [state, action, pending] = useActionState(applyToJob, initialState);
 
-  // The application only shares a contact address when it is verified, and the
-  // RPC refuses the whole submission otherwise. Naming that address — and
-  // whether it is confirmed — turns a generic failure into something the
-  // candidate can act on.
-  const canShareContact = Boolean(contact?.email && contact.emailConfirmed);
+  // An application can only share a verified address, and the RPC refuses the
+  // whole submission otherwise. Naming the address — and blocking the consent
+  // box when it cannot be used — turns a generic failure into something the
+  // candidate can act on. A signed-out visitor has no address to show, so the
+  // box stays enabled and the submit explains the login requirement instead.
+  const contactBlocked = Boolean(contact?.email && !contact.emailConfirmed);
 
   return (
     <section className="job-application-card" aria-labelledby="job-application-title">
@@ -41,17 +42,17 @@ export function JobApplicationForm({
         {contact?.email ? (
           <p className="job-application-contact-address">
             {t("contactEmailLabel")}: <strong>{contact.email}</strong>{" "}
-            {canShareContact ? null : (
+            {contactBlocked ? (
               <span className="job-application-contact-warning">
                 {t("contactEmailUnverifiedNote")}{" "}
                 <Link href="/login">{t("verifyEmailAction")}</Link>
               </span>
-            )}
+            ) : null}
           </p>
         ) : null}
         <label className="job-application-contact-consent">
           <input
-            disabled={!canShareContact}
+            disabled={contactBlocked}
             name="shareContactEmail"
             type="checkbox"
           />
