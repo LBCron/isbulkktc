@@ -90,7 +90,10 @@ test("deriveDisplayName ignores blank and missing metadata", () => {
   assert.equal(deriveDisplayName(undefined), null);
   assert.equal(deriveDisplayName({}), null);
   assert.equal(deriveDisplayName({ name: "   " }), null);
-  assert.equal(deriveDisplayName({ display_name: 42 }), null);
+  // `_meta ->> 'display_name'` coerces a JSON number to its text form, so a
+  // numeric claim is a name rather than a missing one.
+  assert.equal(deriveDisplayName({ display_name: 42 }), "42");
+  assert.equal(deriveDisplayName({ display_name: true }), "true");
 });
 
 test("deriveDisplayName mirrors the SQL normalisation", () => {
@@ -106,6 +109,31 @@ test("deriveDisplayName mirrors the SQL normalisation", () => {
   // `left()` counts characters; astral characters must not be split in half.
   const astral = "\u{1F600}".repeat(90);
   assert.equal(deriveDisplayName({ name: astral }), "\u{1F600}".repeat(80));
+});
+
+test("deriveDisplayName trims only spaces, like pg_catalog.btrim", () => {
+  // `btrim` without a character set strips only U+0020, so a non-breaking space
+  // survives as part of the name — JavaScript's `trim()` would drop it and the
+  // greeting would disagree with the stored profile.
+  assert.equal(deriveDisplayName({ name: "\u00a0" }), "\u00a0");
+  assert.equal(deriveDisplayName({ name: "\u3000Ada\u3000" }), "\u3000Ada\u3000");
+  // A tab is a control character, stripped everywhere rather than trimmed.
+  assert.equal(deriveDisplayName({ name: "\tAda" }), "Ada");
+});
+
+test("deriveDisplayName does not fall through a control-only display_name", () => {
+  // `coalesce` stops at the first non-null, and the `concat_ws` pair fallback is
+  // itself never null — so a `display_name` of only control characters yields no
+  // name, rather than the `full_name` the SQL never reaches.
+  assert.equal(
+    deriveDisplayName({ display_name: "\t", full_name: "Grace" }),
+    null,
+  );
+  // A space-only value *is* null after `btrim`, so it does fall through.
+  assert.equal(
+    deriveDisplayName({ display_name: " ", full_name: "Grace" }),
+    "Grace",
+  );
 });
 
 test("the apply form can explain an unverified contact address", () => {
