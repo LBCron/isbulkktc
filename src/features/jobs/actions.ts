@@ -366,6 +366,18 @@ export async function applyToJob(
     return { ...initialApplicationFormState, status: "error", message: "invalid" };
   }
 
+  // The RPC raises `22023` both for an unverified contact address and for a
+  // closed job, so the two are indistinguishable from the error code alone.
+  // The viewer's own verification state is already in hand, so check it here
+  // and answer with copy that names the actual problem.
+  if (result.data.shareContactEmail && !user.emailConfirmed) {
+    return {
+      ...initialApplicationFormState,
+      status: "error",
+      message: "contactEmailUnverified",
+    };
+  }
+
   const supabase = await createSupabaseServerClient();
   const { data: candidateProfile, error: profileError } = await supabase
     .from("candidate_profiles")

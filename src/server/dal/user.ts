@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/server/db/supabase-server";
 import { redirectLocalized } from "@/i18n/redirect";
 import { getLocalePrefix, isAppLocale, type AppLocale } from "@/i18n/routing";
 import { isCorruptedSupabaseAuthError } from "@/server/auth/supabase-guards";
+import { readSignInMethods } from "@/features/identity/oauth-providers";
 import {
   candidateProfileSchema,
   type CandidateProfileValues,
@@ -27,6 +28,21 @@ export type CurrentUserDTO = {
   avatarUrl: string | null;
   givenName: string | null;
   familyName: string | null;
+  /**
+   * The providers linked to this account, in the order GoTrue reports them
+   * (`app_metadata.providers`, falling back to the single `provider`). Surfaced
+   * so the account panel can say *how* the visitor signs in instead of leaving
+   * them to guess — an account created through Google has no password, and one
+   * created with an e-mail address has no social identity.
+   */
+  signInMethods: string[];
+  /**
+   * Whether the address is verified. GoTrue sets `email_confirmed_at` for a
+   * confirmed mailbox; an OAuth identity is confirmed the moment the provider
+   * vouches for it. The account panel uses this to explain why a contact
+   * address can (or cannot) be shared with an employer.
+   */
+  emailConfirmed: boolean;
 };
 
 function isMissingOrUnauthenticatedAuthError(error: unknown): boolean {
@@ -132,6 +148,8 @@ export const getCurrentUser = cache(
       avatarUrl: profile.avatar_url,
       givenName: profile.given_name,
       familyName: profile.family_name,
+      signInMethods: readSignInMethods(user.app_metadata),
+      emailConfirmed: Boolean(user.email_confirmed_at),
     };
   },
 );

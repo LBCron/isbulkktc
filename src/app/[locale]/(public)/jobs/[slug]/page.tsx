@@ -8,6 +8,7 @@ import { routing } from "@/i18n/routing";
 import { createLocalizedPageMetadata } from "@/lib/seo";
 import { getAppBaseUrl } from "@/server/config/app-url";
 import { getPublicJobBySlug } from "@/server/dal/jobs";
+import { getCurrentUser } from "@/server/dal/user";
 
 type JobDetailPageProps = {
   params: Promise<{ locale: string; slug: string }>;
@@ -50,6 +51,11 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
   const job = await getPublicJobBySlug(validSlug.data);
   if (!job) notFound();
 
+  // The apply form tells a signed-in candidate which address an employer would
+  // receive, so it needs the viewer's own identity — the page is dynamic
+  // (`ƒ /[locale]/jobs/[slug]`), so reading the session costs nothing extra.
+  const viewer = await getCurrentUser();
+
   const jobPostingStructuredData = buildJobPostingStructuredData({
     job,
     baseUrl: getAppBaseUrl(),
@@ -66,7 +72,15 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           ),
         }}
       />
-      <JobDetailExperience locale={locale} job={job} />
+      <JobDetailExperience
+        locale={locale}
+        job={job}
+        viewerContact={
+          viewer
+            ? { email: viewer.email, emailConfirmed: viewer.emailConfirmed }
+            : null
+        }
+      />
     </>
   );
 }

@@ -242,6 +242,7 @@ export type ApplicationFormState = {
     | "applyFailed"
     | "applied"
     | "duplicate"
+    | "contactEmailUnverified"
     | "transitionFailed"
     | "updated";
 };

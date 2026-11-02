@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { signOut } from "@/features/identity/actions";
+import { AccountPanel } from "@/features/identity/account-panel";
 import { CompanyProfileForm } from "@/features/companies/company-profile-form";
 import { markApplicationViewed } from "@/features/jobs/actions";
 import { companyDirectory } from "@/features/companies/directory-data";
@@ -425,6 +426,7 @@ export default async function CompanyDashboardPage({
           className="company-workspace-aside"
           id="directory-listing"
         >
+          <AccountPanel account={user} />
           <section className="company-workspace-preview-card">
             <header className="company-workspace-panel-heading">
               <div>

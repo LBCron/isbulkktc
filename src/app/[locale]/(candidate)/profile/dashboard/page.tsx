@@ -113,6 +113,8 @@ export default async function CandidateDashboardPage() {
           avatarUrl: user.avatarUrl,
           givenName: user.givenName,
           familyName: user.familyName,
+          signInMethods: user.signInMethods,
+          emailConfirmed: user.emailConfirmed,
         }}
         profile={profile}
       />
