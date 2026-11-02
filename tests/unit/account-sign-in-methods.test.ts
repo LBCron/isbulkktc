@@ -93,6 +93,21 @@ test("deriveDisplayName ignores blank and missing metadata", () => {
   assert.equal(deriveDisplayName({ display_name: 42 }), null);
 });
 
+test("deriveDisplayName mirrors the SQL normalisation", () => {
+  // `oauth_profile_claims` strips control characters and caps at 80 characters,
+  // so the e-mail greeting and the stored profile name cannot disagree.
+  assert.equal(deriveDisplayName({ name: "Hande\u0000Kara" }), "HandeKara");
+  assert.equal(deriveDisplayName({ name: "  Hande Kara  " }), "Hande Kara");
+  assert.equal(deriveDisplayName({ name: "\u0001\u0002" }), null);
+
+  const long = "a".repeat(120);
+  assert.equal(deriveDisplayName({ name: long }), "a".repeat(80));
+
+  // `left()` counts characters; astral characters must not be split in half.
+  const astral = "\u{1F600}".repeat(90);
+  assert.equal(deriveDisplayName({ name: astral }), "\u{1F600}".repeat(80));
+});
+
 test("the apply form can explain an unverified contact address", () => {
   // The RPC refuses the whole submission when the shared address is not
   // verified, and its `22023` is indistinguishable from a closed job. The form
