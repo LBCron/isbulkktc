@@ -98,7 +98,7 @@ test("deriveDisplayName ignores blank and missing metadata", () => {
 
 test("deriveDisplayName mirrors the SQL normalisation", () => {
   // `oauth_profile_claims` strips control characters and caps at 80 characters,
-  // so the e-mail greeting and the stored profile name cannot disagree.
+  // so the greeting cannot disagree with the SQL derivation of the same claim.
   assert.equal(deriveDisplayName({ name: "Hande\u0000Kara" }), "HandeKara");
   assert.equal(deriveDisplayName({ name: "  Hande Kara  " }), "Hande Kara");
   assert.equal(deriveDisplayName({ name: "\u0001\u0002" }), null);

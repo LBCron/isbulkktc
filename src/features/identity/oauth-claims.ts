@@ -22,21 +22,29 @@ function claimText(value: unknown): string | null {
 }
 
 /**
- * The display-name precedence and normalisation the database uses.
+ * The display-name precedence and normalisation `public.oauth_profile_claims`
+ * uses, for the welcome-e-mail greeting.
  *
  * `public.oauth_profile_claims` resolves a provider's name in this exact order
  * and the account trigger writes the result into `profiles.display_name`. The
- * callback needs the same answer for the welcome e-mail greeting, and reading
- * only `display_name`/`full_name` silently dropped LinkedIn, whose metadata
- * carries `name` plus a `given_name`/`family_name` pair and neither of the
- * other two keys — so a LinkedIn sign-up was greeted without a name while a
- * Google one was greeted with it.
+ * callback needs the same answer for the greeting, and reading only
+ * `display_name`/`full_name` silently dropped LinkedIn, whose metadata carries
+ * `name` plus a `given_name`/`family_name` pair and neither of the other two
+ * keys — so a LinkedIn sign-up was greeted without a name while a Google one
+ * was greeted with it.
  *
  * Every step mirrors the SQL — the coercion, the space-only trim, the
  * `coalesce` order (including that the pair fallback is never null, so a
  * control-only `display_name` yields no name rather than falling through), the
  * control-character strip, and `left(..., 80)` counting characters rather than
- * UTF-16 code units — so the greeting and the stored profile cannot disagree.
+ * UTF-16 code units — so this function is byte-identical to the SQL derivation
+ * for every non-object claim (verified against the deployed function).
+ *
+ * It is *not* byte-identical to the value the trigger stores: the trigger
+ * afterwards substitutes the e-mail local part (or `'Aday'`) when the derived
+ * name is shorter than two characters, which this helper cannot know. The two
+ * are allowed to differ, and the e-mail renderer omits the greeting when the
+ * name is absent rather than showing a placeholder.
  */
 export function deriveDisplayName(
   metadata: Record<string, unknown> | null | undefined,
