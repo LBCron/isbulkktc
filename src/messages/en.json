@@ -561,6 +561,8 @@
     "storyEyebrow": "COMPANY REGISTRATION",
     "storyTitle": "Start by sharing your details.",
     "storyBody": "Submitted company details enter the review process. Publishing listings is not available until verification is complete.",
+    "sceneMediaLabel": "Northern Cyprus in pictures and video",
+    "sceneVideoUnavailable": "This video is unavailable right now.",
     "messages": {
       "invalid": "Check the company name and URL name, then try again.",
       "duplicate": "This company URL name is already in use.",

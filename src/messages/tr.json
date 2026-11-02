@@ -561,6 +561,8 @@
     "storyEyebrow": "ŞİRKET KAYIT AKIŞI",
     "storyTitle": "Önce bilgilerinizi iletin.",
     "storyBody": "Gönderdiğiniz şirket bilgileri inceleme sürecine alınır. Doğrulama tamamlanmadan ilan yayımlama etkin değildir.",
+    "sceneMediaLabel": "Kıbrıs'tan görüntüler ve videolar",
+    "sceneVideoUnavailable": "Video şu anda oynatılamıyor.",
     "messages": {
       "invalid": "Şirket adı ve bağlantı adını kontrol edip tekrar deneyin.",
       "duplicate": "Bu şirket bağlantı adı zaten kullanılıyor.",

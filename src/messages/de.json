@@ -598,6 +598,8 @@
     "storyEyebrow": "UNTERNEHMENSREGISTRIERUNG",
     "storyTitle": "Beginnen Sie mit Ihren Angaben.",
     "storyBody": "Eingereichte Unternehmensdaten werden geprüft. Anzeigen können erst nach abgeschlossener Bestätigung veröffentlicht werden.",
+    "sceneMediaLabel": "Nordzypern in Bildern und Videos",
+    "sceneVideoUnavailable": "Dieses Video ist derzeit nicht verfügbar.",
     "messages": {
       "invalid": "Prüfen Sie Unternehmensnamen und URL-Namen und versuchen Sie es erneut.",
       "duplicate": "Dieser Unternehmens-URL-Name wird bereits verwendet.",
