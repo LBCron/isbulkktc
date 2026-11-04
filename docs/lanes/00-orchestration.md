@@ -25,10 +25,30 @@ Bu dosya kuralları ve sırayı tanımlar. Bir lane'in brief'i `docs/lanes/<ad>.
 |---|---|
 | LANE-SUPABASE | `supabase/**` (migrations, tests, seed, config.toml) |
 | LANE-CLOUDFLARE | repo dosyası YOK (CF API); isterse `docs/cloudflare.md` |
-| LANE-SEO | `src/lib/seo.ts`, `src/app/sitemap.ts`, `src/app/robots.ts`, `src/app/[locale]/**/opengraph-image.tsx`, `src/app/[locale]/**/twitter-image.tsx`, `scripts/submit-indexnow.mjs`, **ve `src/app/[locale]/**` route/layout dosyaları** (metadata, `<head>`, JSON-LD mount) |
+| LANE-SEO | `src/lib/seo.ts`, `src/app/sitemap.ts`, `src/app/robots.ts`, `src/app/[locale]/**/opengraph-image.tsx`, `src/app/[locale]/**/twitter-image.tsx`, **ve `src/app/[locale]/**` route/layout dosyaları** (metadata, `<head>`, JSON-LD mount) |
 | LANE-GEO | `src/content/**`, `src/app/llms.txt/**`, `public/llms*`, **JSON-LD ÜRETEN modüller**: `src/features/**/structured-data*.ts`, `src/features/jobs/job-posting-structured-data.ts` |
 | LANE-TASARIM | `src/components/**`, `src/experience/**`, `src/assets/**` (+ kendi guard dosyaları: `tests/e2e/accessibility.spec.ts`, `tests/unit/design-tokens.test.ts`, `design-token-drift.baseline.json`) |
 | LANE-AUTH | `src/features/identity/**`, `src/app/[locale]/(auth)/**`, `supabase/templates/**` |
+| LANE-INFRA | `.github/**`, `scripts/**` (CI, workflow, guard ve lane otomasyonu) |
+
+### Lane → skill eşlemesi
+
+Her lane işini yaparken kendi uzmanlık skill'ini kullanır. Skill'ler
+`.agents/skills/` altındadır (OpenHands extensions reposundan kuruldu, tarandı).
+
+| Lane | Skill'ler |
+|---|---|
+| LANE-TASARIM | `frontend-design` (özgün, üretim kalitesinde UI), `code-simplifier` |
+| LANE-SEO / LANE-GEO | `evidence-based-citations` (iddiaları resmî kaynakla bağla) |
+| LANE-SUPABASE / LANE-AUTH | `security` (güvenli kodlama, yetkilendirme, veri koruma) |
+| LANE-CLOUDFLARE | `security` |
+| LANE-INFRA | `github-actions` (workflow kur/debug et) |
+| Her lane (PR öncesi) | `code-review`, `qa-changes` |
+| PR'a yorum yazarken | `github-pr-review` |
+| Sadeleştirme turunda | `code-simplifier` |
+
+`code-review` ve `qa-changes` her lane'in **tanım-bitti** kapısının parçasıdır:
+PR açmadan önce değişikliği kendi başına gözden geçir, çalıştır, sonucu raporla.
 
 ### Çakışma çözümü (ÖNEMLİ)
 - **`src/app/[locale]/layout.tsx` ve `jobs/[slug]/page.tsx` içinde hem görsel JSX
