@@ -101,7 +101,7 @@ function openPullRequests() {
     '--state',
     'open',
     '--json',
-    'number,headRefName,mergeStateStatus',
+    'number,headRefName,mergeStateStatus,labels,isDraft,autoMergeRequest',
     '--limit',
     '50',
   ]);
@@ -123,6 +123,54 @@ function blockedIssues() {
     '50',
   ]);
   return JSON.parse(raw);
+}
+
+/**
+ * Merge lane PRs that are ready.
+ *
+ * The event-driven workflow enables auto-merge when a PR is opened, but an
+ * event can be missed: a PR opened before the workflow existed never fires one,
+ * and a PR that turns green later fires nothing. Reconciling here closes that
+ * gap, because the pass runs on a schedule regardless of events.
+ *
+ * The same two brakes apply: a PR touching the CI gate, or carrying
+ * agent:hold / agent:blocked, is left alone.
+ */
+function mergeReadyPullRequests(prs, dryRun) {
+  const gate = /^\.github\/workflows\//;
+  const merged = [];
+  for (const pr of prs) {
+    const labels = (pr.labels ?? []).map((l) => l.name ?? l);
+    if (labels.includes('agent:hold') || labels.includes('agent:blocked')) {
+      continue;
+    }
+    if (pr.mergeStateStatus !== 'CLEAN') continue;
+    if (pr.autoMergeRequest) continue;
+    if (pr.isDraft) continue;
+    const files = JSON.parse(
+      gh(['pr', 'view', String(pr.number), '--json', 'files', '--jq', '.files']),
+    );
+    if (files.some((f) => gate.test(f.path))) continue;
+    if (dryRun) {
+      merged.push({ number: pr.number, action: 'would merge' });
+      continue;
+    }
+    try {
+      gh([
+        'pr',
+        'merge',
+        String(pr.number),
+        '--squash',
+        '--auto',
+        '--repo',
+        REPO,
+      ]);
+      merged.push({ number: pr.number, action: 'auto-merge on' });
+    } catch (error) {
+      merged.push({ number: pr.number, action: `failed: ${error.message}` });
+    }
+  }
+  return merged;
 }
 
 /** Lane tasks this process has started, newest first, from the cloud API. */
@@ -404,8 +452,17 @@ async function main() {
 
   if (dryRun) {
     console.log('\n--dry-run: nothing started');
-    return;
   }
+
+  // Reconcile PRs before starting anything: a ready PR should land even if its
+  // opening event was missed.
+  const mergeResults = mergeReadyPullRequests(prs, dryRun);
+  if (mergeResults.length > 0) {
+    console.log('\nready PRs:');
+    for (const m of mergeResults) console.log(`  #${m.number} ${m.action}`);
+  }
+
+  if (dryRun) return;
 
   for (const d of allowed) {
     try {
