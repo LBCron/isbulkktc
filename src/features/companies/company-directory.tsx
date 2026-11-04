@@ -23,6 +23,7 @@ import {
   sortCompanyDirectory,
   type CompanyDirectoryEntry,
 } from "./directory";
+import { companyWebsiteDomain } from "./website-domain";
 import {
   getNorthernCyprusDistrictForLocation,
   northernCyprusDistricts,
@@ -299,10 +300,8 @@ export function CompanyDirectory({
                 </div>
                 <div className="company-directory-card-actions">
                   {websites.map((website) => {
-                    const websiteLabel = new URL(website).hostname.replace(
-                      /^www\./,
-                      "",
-                    );
+                    const websiteLabel =
+                      companyWebsiteDomain(website) ?? website;
                     return (
                       <a
                         href={website}

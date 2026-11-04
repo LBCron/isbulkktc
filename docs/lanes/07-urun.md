@@ -191,3 +191,58 @@ Canlıya dokunulmadı.
 - **#108 kapalı ama hata `main`'de canlıydı.** Bir issue'yu "duplicate" diye
   kapatmak, orijinali (#101) kapatmaz; kuyruk tararken `state` kontrol edilmeli.
   Bu turda LANE-URUN farkı yakaladı ve düzeltti.
+
+---
+
+## Tur 4 — micro-denetim (AUDIT.md), bulgu: `new URL` çökmesi
+
+### Envanter
+`git ls-files` ile sahip olduğum yollar: **83 dosya** (5 yeni `abuse/` dahil).
+Boyut boyut tarandı; her dosya aşağıdaki tabloda bir sonuç taşır.
+
+### Bulgu (düzeltildi)
+
+**`src/features/companies/directory.ts` — doğrulanmamış `new URL` ile sayfa çöküyor (yüksek).**
+
+- **Gözlenen:** `sameLocation` (satır 129/132) ve `getCompanyIdentityKeys`
+  (satır 182) `website` alanını `try` olmadan `new URL(...)` ile çözüyordu.
+  `website` yalnız DB CHECK `^https?://[^\s]+$` ile sınırlı ve DAL'da düz
+  `string` olarak tipleniyor; bu regex'i geçip `new URL`'ü patlatan değerler var:
+  `http://[`, `https://]`, `https://%zz`. Deneyle doğrulandı:
+  `deduplicateCompanyDirectory([...website:"http://["...])` → `TypeError: Invalid URL`.
+- **Beklenen:** bozuk bir `website` yalnız o alanı düşürmeli; sayfa çökmemeli.
+- **Etki:** `/[locale]/companies` herkese açık rota; tek bozuk satır tüm dizin
+  sayfasını 500'e çeviriyordu (render yolunda `company-directory.tsx:302` de aynı
+  riski taşıyordu).
+- **Düzeltme:** yeni `src/features/companies/website-domain.ts`
+  (`companyWebsiteDomain`) — `try/catch` ile `null` döner. Üç çağrı yeri
+  (dedupe anahtarı ×2, render etiketi) bu yardımcıyı kullanıyor. `company-logos.ts`
+  zaten aynı desenle korumalıydı; bu, eksik kalan yerdi.
+- **Test:** `src/features/companies/website-domain.test.ts` (3 test) — bozuk
+  değerler `null`, normal değer host döner, dedupe bozuk satırla çökmez.
+
+### Taranan boyutlar → sonuç
+
+| Boyut | Bulgu |
+|---|---|
+| Doğruluk (sınır girdi) | ✅ saf fonksiyonlar sınandı (slug, district, özet, CSV, parser): bozuk girdi `null`/güvenli dönüyor |
+| Hata yolu | ⚠️ **1 bulgu** — yukarıdaki `new URL` çökmesi (düzeltildi) |
+| Yetki | ✅ 7 action'ın hepsi oturum + rol/üyelik kontrolü yapıyor; RPC kodları `42501`'e eşleniyor |
+| Yarış / idempotency | ✅ çift gönderim RPC unique kısıtlarına (`23505`) bağlı; `upsert` kullanılıyor |
+| Sızıntı (log/PII) | ✅ loglar yalnız `code` taşıyor, e-posta/içerik yok |
+| Sorgu | ✅ `select("*")` yok; dar kolon seçimleri |
+| Ölü kod | ✅ kullanılmayan export/ulaşılamaz dal bulunmadı |
+| Yorum | ✅ yorumlar sezgi-dışı olanı açıklıyor; tekrar eden yok |
+
+### Kapsam dışı bırakılan (bakılmadı işareti)
+- `src/features/candidates/resume-parser.ts` (876 satır): yalnız fonksiyon
+  sınırları + uç girdi probu ile tarandı, **satır satır okunmadı**. Boş/uzun/
+  emoji/`\u0000` girdileri güvenli (`hasResumeDraftContent=false`, çökme yok).
+- `src/features/companies/company-directory.tsx` (420 satır) ve
+  `src/features/pwa/install-experience.tsx`: yalnız değiştirdiğim render
+  yolu ve `new URL` siteleri incelendi; kalan JSX satır satır okunmadı.
+- `src/features/companies/data/*.json`: veri dosyası, kod değil.
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (377 → **380**)/test:security →
+hepsi yeşil. Canlıya dokunulmadı.
