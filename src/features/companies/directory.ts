@@ -2,6 +2,7 @@ import {
   getNorthernCyprusDistrictForLocation,
   resolveNorthernCyprusDistrict,
 } from "@/features/locations/northern-cyprus-districts";
+import { companyWebsiteDomain } from "./website-domain";
 
 export type CompanyDirectoryLocation = {
   address: string | null;
@@ -125,12 +126,8 @@ function sameLocation(
 
   const currentPhone = current.phone?.replace(/\D/g, "");
   const incomingPhone = incoming.phone?.replace(/\D/g, "");
-  const currentWebsite = current.website
-    ? new URL(current.website).hostname.replace(/^www\./, "").toLowerCase()
-    : "";
-  const incomingWebsite = incoming.website
-    ? new URL(incoming.website).hostname.replace(/^www\./, "").toLowerCase()
-    : "";
+  const currentWebsite = companyWebsiteDomain(current.website);
+  const incomingWebsite = companyWebsiteDomain(incoming.website);
 
   return Boolean(
     (currentPhone && currentPhone === incomingPhone) ||
@@ -178,10 +175,8 @@ function getCompanyIdentityKeys(entry: CompanyDirectoryEntry): string[] {
   const keys = new Set<string>();
 
   for (const location of entry.locations) {
-    if (location.website) {
-      const domain = new URL(location.website).hostname
-        .replace(/^www\./, "")
-        .toLowerCase();
+    const domain = companyWebsiteDomain(location.website);
+    if (domain) {
       keys.add(`${name}|website:${domain}`);
     }
 
