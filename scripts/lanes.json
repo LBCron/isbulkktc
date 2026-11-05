@@ -132,5 +132,6 @@
       ],
       "laneLabel": "lane:infra"
     }
-  }
+  },
+  "maxReusesPerConversation": 2
 }
