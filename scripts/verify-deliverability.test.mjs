@@ -33,11 +33,28 @@ test("SPF lookup counting ignores qualifiers and matches the 10-lookup boundary"
 
 test("SPF authorisation recognises SES and Resend's Forge return path", () => {
   assert.equal(spfAuthorisesSender("v=spf1 include:amazonses.com ~all"), true);
+  assert.equal(spfAuthorisesSender("v=spf1 +include:amazonses.com ~all"), true);
+  assert.equal(spfAuthorisesSender("v=spf1 include:amazonses.com. ~all"), true);
+  // `-include` rejects the sender and `~`/`?` do not authorise it, so none of
+  // those may read as PASS.
+  assert.equal(spfAuthorisesSender("v=spf1 -include:amazonses.com ~all"), false);
+  assert.equal(spfAuthorisesSender("v=spf1 ~include:amazonses.com ~all"), false);
   // A Return-Path subdomain that names concrete sending IPs also authorises a
   // sender; a root record that only includes an unrelated routing service does not.
   assert.equal(spfAuthorisesSender("v=spf1 ip4:52.3.252.119 ip4:44.222.39.36 ~all"), true);
   assert.equal(spfAuthorisesSender("v=spf1 include:_spf.mx.cloudflare.net ~all"), false);
   assert.equal(spfAuthorisesSender("v=spf1 -all"), false);
+});
+
+test("SPF authorisation is not fooled by a host that merely contains amazonses.com", () => {
+  // The regression: the old substring match accepted these as "authorised",
+  // reporting PASS for a record that authorises an unrelated host.
+  assert.equal(spfAuthorisesSender("v=spf1 include:notamazonses.com ~all"), false);
+  assert.equal(spfAuthorisesSender("v=spf1 include:amazonses.com.evil.example ~all"), false);
+  assert.equal(spfAuthorisesSender("v=spf1 include:evil.example/amazonses.com ~all"), false);
+  // A record whose only ip4 entry is unrelated still authorises *a* sender, which
+  // is the intended (looser) second signal for a Return-Path subdomain.
+  assert.equal(spfAuthorisesSender("v=spf1 ip4:203.0.113.7 ~all"), true);
 });
 
 test("SPF ip entries are extracted with their family and mask stripped", () => {

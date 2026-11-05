@@ -21,7 +21,7 @@ domain: isbulkktc.com | Resend status: verified | region: eu-west-1
 | SPF | PASS | `send` alt alan adında; zarf göndericisi üzerinden geçer |
 | DMARC | WARN | `p=none` — izleme modu, zorlayıcı değil |
 | MX | PASS | Cloudflare Email Routing |
-| Blocklists | PASS | Spamhaus/SpamCop/SORBS temiz |
+| Blocklists | ~~PASS~~ ⚠️ | **geçersiz** — araç alan adını yalnız-IP bölgelerine soruyordu; bkz. tur 2 |
 | Resend domain | PASS | `verified` |
 
 ### Gerçek gönderim testleri
@@ -96,10 +96,27 @@ işaretliyor. Ölçüm artık kendi hatasını temizlik sanmıyor.
 
 ### Testler
 
-`scripts/verify-deliverability.test.mjs` (yeni): 9 test — SPF terim sayımı ve
-10-lookup sınırı, gönderici yetkilendirme (SES / `ip4:`), `ip4:`/`ip6:` çıkarımı,
-DNS present/absent/error ayrımı, DNSBL listed/refused/clean, ters IPv4, sentinel
-kapısı, DMARC relaxed alignment. `bun run test:unit` içinde koşar.
+`scripts/verify-deliverability.test.mjs` (yeni): 10 test — SPF terim sayımı ve
+10-lookup sınırı, gönderici yetkilendirme (SES / `ip4:`) + sahte "amazonses"
+alt dizesi, `ip4:`/`ip6:` çıkarımı, DNS present/absent/error ayrımı, DNSBL
+listed/refused/clean, ters IPv4, sentinel kapısı, DMARC relaxed alignment.
+`bun run test:unit` içinde koşar.
+
+## 2026-11-05 — tur 3: SPF yetkilendirmede yanlış pozitif (LANE-VERIFY, #187)
+
+Tur 2'nin `spfAuthorisesSender()` düzeltmesi fazla gevşekti: `amazonses\.com`
+alt dize eşlemesi, **`include:notamazonses.com`** ve
+**`include:amazonses.com.evil.example`** kayıtlarını "göndericiyi yetkilendiriyor"
+sayıyordu — yani yetkisiz bir kayıt `PASS` görünüyordu. Bu, tur 2'de kapattığım
+sınıfın (yanlış "temiz") tam tersi yönde bir yanlış "PASS"ıydı.
+
+| # | Boyut | Gözlenen | Beklenen | Düzeltme |
+|---|---|---|---|---|
+| 7 | Doğruluk | `spfAuthorisesSender("v=spf1 include:notamazonses.com ~all")` → `true` | `false` | Mekanizma tam eşleşme (`include:amazonses.com`); yalnız çıplak/`+` kabul, sondaki nokta kabul, `-`/`~`/`?` kabul değil |
+
+Ölçüm (düzeltme sonrası, aynı gün): SPF değerlendirmesi değişmedi —
+`send.isbulkktc.com` gerçek `include:amazonses.com` taşıdığı için `PASS`.
+Yani düzeltme yalnız yanlış pozitifi kapatır, doğru sonucu değiştirmez.
 
 ## 2026-11-05 — arama görünürlüğü
 
