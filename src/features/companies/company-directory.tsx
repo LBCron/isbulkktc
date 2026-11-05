@@ -64,19 +64,6 @@ export function CompanyDirectory({
     });
     return sortCompanyDirectory(results, sortDirection, query);
   }, [companies, query, category, district, sortDirection]);
-  const unclassifiedLocationCount = useMemo(
-    () =>
-      companies.reduce(
-        (count, company) =>
-          count +
-          company.locations.filter(
-            (entryLocation) =>
-              !getNorthernCyprusDistrictForLocation(entryLocation),
-          ).length,
-        0,
-      ),
-    [companies],
-  );
   const pageCount = Math.max(1, Math.ceil(filteredCompanies.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const firstResult = (currentPage - 1) * pageSize;
@@ -410,9 +397,6 @@ export function CompanyDirectory({
       <p className="company-directory-source-note">
         <ArrowDownRight size={15} aria-hidden="true" />
         {t("sourceNote")}
-      </p>
-      <p className="company-directory-source-note">
-        {t("districtDataNote", { count: unclassifiedLocationCount })}
       </p>
     </section>
   );
