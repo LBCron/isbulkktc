@@ -237,6 +237,26 @@ async function resumeSandbox(sandboxId) {
   return ok;
 }
 
+/**
+ * Poll until a resumed sandbox reports RUNNING, or give up.
+ *
+ * `resume` returns immediately while the sandbox is still STARTING; a send in
+ * that window is refused with "Sandbox is STARTING". Waiting here turns a race
+ * into a delay, so the lane does not lose an attempt to it.
+ */
+async function waitForSandboxReady(sandboxId, { attempts = 12, delayMs = 5000 } = {}) {
+  for (let i = 0; i < attempts; i += 1) {
+    const { ok, body } = await api('/sandboxes/search?limit=50');
+    if (ok && body) {
+      const found = (body.items ?? []).find((s) => s.id === sandboxId);
+      if (found?.status === 'RUNNING') return true;
+      if (!found) return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 /** The kickoff prompt for a lane, with the autopilot's retry budget and hint. */
 function laneKickoff(name, context) {
   return kickoff(name, LANES[name], {
@@ -522,19 +542,29 @@ async function main() {
       if (resumable) {
         const resumed = await resumeSandbox(resumable.sandbox_id);
         if (resumed) {
-          await sendToExisting(resumable.id, d.name, d.context);
-          entry.attempts = (entry.attempts ?? 0) + 1;
-          entry.lastConversationId = resumable.id;
-          entry.lastStatus = 'RESUMED';
-          entry.lastError = null;
-          entry.updatedAt = new Date().toISOString();
-          state[d.name] = entry;
-          console.log(
-            `  ${d.name}: resumed sandbox (attempt ${entry.attempts})`,
+          // resume returns before the sandbox accepts work: it reports
+          // "Sandbox is STARTING" for a few seconds. Wait for it, otherwise the
+          // send fails and the lane spends an attempt on a race.
+          const ready = await waitForSandboxReady(resumable.sandbox_id);
+          if (ready) {
+            await sendToExisting(resumable.id, d.name, d.context);
+            entry.attempts = (entry.attempts ?? 0) + 1;
+            entry.lastConversationId = resumable.id;
+            entry.lastStatus = 'RESUMED';
+            entry.lastError = null;
+            entry.updatedAt = new Date().toISOString();
+            state[d.name] = entry;
+            console.log(
+              `  ${d.name}: resumed sandbox (attempt ${entry.attempts})`,
+            );
+            continue;
+          }
+          console.error(
+            `  ${d.name}: sandbox did not become ready after resume, using a new one`,
           );
-          continue;
+        } else {
+          console.error(`  ${d.name}: resume failed, falling through to a new sandbox`);
         }
-        console.error(`  ${d.name}: resume failed, falling through to a new sandbox`);
       }
 
       const taskId = await spawnLane(d.name, d.context);
