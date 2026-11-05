@@ -445,11 +445,22 @@ async function main() {
     .filter(Boolean);
 
   // A lane whose latest task is still WORKING counts as running.
-  const working = new Set(
-    tasks
+  // A lane is busy when a task it owns is still starting, OR when its
+  // conversation reports execution_status=running. The second half matters for
+  // lanes given work through send-message: their start task stays READY, so
+  // counting only start tasks made a busy lane look idle and the pass asked for
+  // a fresh sandbox it did not need.
+  const busyConversations = new Set(
+    (await api('/app-conversations/search?limit=50')).body?.items
+      ?.filter((c) => String(c.execution_status ?? '') === 'running')
+      .map((c) => String(c.title ?? '').replace(/^LANE-/, '')) ?? [],
+  );
+  const working = new Set([
+    ...tasks
       .filter((t) => !['READY', 'ERROR'].includes(t.status))
       .map((t) => String(t.request?.title ?? '').replace(/^LANE-/, '')),
-  );
+    ...busyConversations,
+  ]);
 
   const ctx = { prs, blocked, handoffs, branches, state, working };
   const decisions = [];
