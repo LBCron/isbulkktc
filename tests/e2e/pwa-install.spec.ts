@@ -85,6 +85,9 @@ test("the manifest is linked from every public page", async ({ page }) => {
 test("the install page renders in every locale without a device-specific claim", async ({
   page,
 }) => {
+  // Six locale navigations with several assertions each. Budgeted for the same
+  // reason as the other multi-navigation sweeps in this suite.
+  test.setTimeout(120_000);
   for (const locale of locales) {
     const prefix = locale === "tr" ? "" : `/${locale}`;
     const response = await page.goto(`${prefix}/install`);

@@ -621,6 +621,12 @@ test("sector cards animate on hover only when motion is allowed", async ({
 });
 
 test("every page hero uses its own uploaded photo", async ({ page }) => {
+  // Seven full-page loads, each followed by a decode poll. Measured at ~34s on an
+  // idle machine, which leaves under 2x headroom against Playwright's 60s
+  // default — and `seo.spec.ts` already budgets its comparable multi-navigation
+  // tests at 120-180s. Without this the test is the first to fall over on a
+  // loaded runner, and the failure reads as a timeout rather than "which hero".
+  test.setTimeout(120_000);
   const heroImages = [
     [
       "/companies",
@@ -663,6 +669,10 @@ test("every page hero uses its own uploaded photo", async ({ page }) => {
 test("sector cards use the matching optimized photos in both locales", async ({
   page,
 }) => {
+  // Two locales x 16 sector cards, each card asserting four attributes plus a
+  // per-card image fetch. Measured at ~27s; budgeted like the sibling hero test
+  // so a loaded runner reports a real failure instead of the 60s default.
+  test.setTimeout(120_000);
   const sectorPhotos = [
     ["technology", "pexels-zayed-hossain-52728970-36706460.jpg"],
     ["education", "pexels-max-fischer-5212338.jpg"],
@@ -1043,6 +1053,9 @@ test("freelance career page links to the real candidate profile flow", async ({
 test("localized landing pages remain within narrow viewports", async ({
   page,
 }) => {
+  // Six locales, each measured at two narrow widths. Budgeted for the same reason
+  // as the other multi-navigation sweeps in this file.
+  test.setTimeout(120_000);
   for (const locale of ["tr", "en", "ru", "el", "fa", "de"]) {
     await page.goto(locale === "tr" ? "/" : `/${locale}`);
     await expect(page.locator(".hero-section")).toBeVisible();

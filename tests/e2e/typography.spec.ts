@@ -23,6 +23,9 @@ const localeDisplayFonts = [
 test("global display typography follows each locale's writing system", async ({
   page,
 }) => {
+  // Six locale navigations, each measuring computed typography. Budgeted for the
+  // same reason as the other multi-navigation sweeps in this suite.
+  test.setTimeout(120_000);
   for (const { path, locale, font } of localeDisplayFonts) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(path);
@@ -122,6 +125,11 @@ test("shared navigation stays usable across locale-specific desktop widths", asy
 test("freelance desktop hero keeps its headline within three lines", async ({
   page,
 }) => {
+  // Six locales x three desktop widths = 18 full navigations in one test.
+  // Measured at ~25s, the heaviest unbudgeted test in the suite, so the 60s
+  // default is the tightest margin here; give it the same budget the other
+  // multi-navigation sweeps carry.
+  test.setTimeout(120_000);
   for (const { path, locale } of localeDisplayFonts) {
     for (const width of [1201, 1245, 1440]) {
       await page.setViewportSize({ width, height: 930 });
@@ -150,6 +158,10 @@ test("freelance desktop hero keeps its headline within three lines", async ({
 test("public page headings keep a restrained hierarchy on desktop and mobile", async ({
   page,
 }) => {
+  // Eight routes, each measured at two viewports. Measured at ~21s, so the 60s
+  // default leaves thin headroom under CI load; budgeted like the other
+  // multi-route sweeps in this suite.
+  test.setTimeout(120_000);
   for (const { path, selector } of pageHeadings) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(path);

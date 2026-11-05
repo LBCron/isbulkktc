@@ -268,6 +268,10 @@ test("all advertised locales render with correct direction and complete SEO alte
 test("account pages are excluded from indexing without blocking crawlers", async ({
   page,
 }) => {
+  // Six navigations plus a robots.txt fetch. Measured here at ~24s, so the 60s
+  // default leaves thin headroom on a loaded runner; budgeted like the other
+  // multi-route SEO sweeps in this file.
+  test.setTimeout(120_000);
   for (const path of [
     "/login",
     "/register",
