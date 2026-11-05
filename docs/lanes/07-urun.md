@@ -321,3 +321,71 @@ testi kaynak taramasına çevirmesini ya da LANE-INFRA'nın test runner'ına
 | Yarış / idempotency | ✅ RPC tek INSERT; `leadId` idempotency anahtarı postada |
 | Sızıntı | ✅ loglar yalnız `code` |
 | Test | ✅ yeni `schemas.test.ts` (4) + mevcut QA şeması |
+
+---
+
+## Tur 6 — geçersiz RESEND_API_KEY sessizce yutuluyordu (#186)
+
+### Alınan issue
+`gh issue list --state open --label agent:backend` → **#186** (sahibi LANE-URUN).
+Kuyrukta `lane:urun` etiketli tek sınırlı iş buydu; #102 ve diğerleri başka
+lane'lere handoff edilmiş durumda.
+
+### Doğrulanan kanıt (secret değeri yazdırılmadan)
+```
+RESEND_API_KEY       : len=36 prefix=d81 sha256=2f0d4c83622b
+SUPABASE_ACCESS_TOKEN: len=36 prefix=d81 sha256=2f0d4c83622b
+AYNI MI: True        (Resend anahtarı `re_` ile başlar → bu değer başlamıyor)
+```
+Yani Supabase access token'ı Resend alanına kopyalanmış.
+
+### Kapsam ayrımı (issue'nun kendisi böyle diyor)
+- **1. Doğru anahtarı gir + doğrula** → canlı env/secret, panel erişimi → **insan**.
+- **2. Sessiz başarısızlığı kaldır** → **LANE-URUN (bu tur)**.
+- **3. Secret karışıklığını önle** → 1 ile aynı → insan.
+
+### Kök neden (2. madde)
+`src/server/email/mailer.ts` `getResend` her kullanılamaz anahtarı
+"yapılandırılmamış" sayıp `null` dönüyordu; `deliver` tek satır `console.warn`
+ile geçiyordu. *Var ama yanlış* ile *hiç yok* aynı sessiz davranıştı — hatanın
+aylarca görünmemesinin nedeni bu.
+
+### Düzeltme (yalnız sahip olduğum + issue'nun atadığı yüzey)
+- **Yeni `src/server/config/resend-key.ts`** (`classifyResendApiKey`, saf,
+  `src/server/config/**` LANE-URUN sahipliğinde): `missing | malformed | present`.
+- **`src/server/email/mailer.ts` `getResend`** üç durumu ayırır: `missing` →
+  mevcut uyarı; `malformed` → `console.error("email_health", { event:
+  "resend_key_malformed", … })` (alarm bağlanabilir); `present` → `new Resend`.
+  `deliver` yanıltıcı "not configured" satırını artık basmaz.
+- `mailer.ts` sahiplik tablosunda **sahipsiz**; #186 açıkça bu yarıyı LANE-URUN'a
+  veriyor ve hiçbir lane o dosyayı düzenlemiyor (açık PR'lar kontrol edildi).
+
+### Eklenen test
+`src/server/config/resend-key.test.ts` (3 test) — missing/blank, geçerli `re_`,
+"var ama yanlış biçim" (Supabase token kopyası dahil).
+
+### Fonksiyonel doğrulama
+`--conditions=react-server` (Next'in sunucu koşulu; `server-only` boş modüle
+çözülür), ağ çağrısı yok:
+```
+missing      -> warn  "Outbound email skipped: RESEND_API_KEY is not configured."
+malformed    -> error "email_health" {"event":"resend_key_malformed", …}
+blank        -> warn  "Outbound email skipped: RESEND_API_KEY is not configured."
+```
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (444 → **447**)/test:security →
+hepsi yeşil. Canlıya dokunulmadı (secret yazımı yok, DB yok).
+
+### Devredilen (insan) — #186'ın 1. ve 3. maddesi
+Doğru `RESEND_API_KEY` (`re_…`) panelden girilip doğrulanmalı:
+`curl -H "Authorization: Bearer $RESEND_API_KEY" https://api.resend.com/domains`
+→ `isbulkktc.com status: verified`. Bu bir panel/secret işlemidir, lane yapamaz.
+
+### Notlar
+- **CI flake'leri:** `Database` ve `E2E` job'ları bu turda **"Start the seeded
+  local Supabase stack"** ve **"Install Playwright browser"** adımlarında
+  düştü — ikisi de Docker/apt altyapısı, TypeScript değişikliğiyle ilgisiz.
+  `gh run rerun --failed` ile geçti/geçiyor.
+- **`src/server/email/**` hâlâ sahipsiz.** #102 (server-only) da bu yüzden
+  handoff. Öneri: sahiplik tablosuna `src/server/email/**` için sahip tanımla.
