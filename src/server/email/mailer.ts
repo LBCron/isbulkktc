@@ -2,6 +2,7 @@ import "server-only";
 
 import { Resend } from "resend";
 import { getAppBaseUrl } from "@/server/config/app-url";
+import { classifyResendApiKey } from "@/server/config/resend-key";
 import { getLocalePrefix, type AppLocale } from "@/i18n/routing";
 import {
   renderEngagementEmail,
@@ -34,9 +35,24 @@ import { resolveEmailLocale } from "../../../supabase/functions/_shared/email-co
 const DEFAULT_FROM = "İşBul KKTC <no-reply@isbulkktc.com>";
 
 function getResend(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return null;
-  return new Resend(apiKey);
+  const status = classifyResendApiKey(process.env.RESEND_API_KEY);
+  if (status === "missing") {
+    // Legitimately optional (local dev, preview without mail). A warning, not an
+    // error, and the single place the reason is reported.
+    console.warn("Outbound email skipped: RESEND_API_KEY is not configured.");
+    return null;
+  }
+  if (status === "malformed") {
+    // Present but not a Resend key (a copied Supabase token, a truncated value).
+    // Reporting it as "not configured" hid the real cause for months (#186), so
+    // name it distinctly; a health signal keyed on `event` can alert on it.
+    console.error("email_health", {
+      event: "resend_key_malformed",
+      message: "RESEND_API_KEY is set but is not a Resend key (expected `re_…`).",
+    });
+    return null;
+  }
+  return new Resend(process.env.RESEND_API_KEY!.trim());
 }
 
 function fromAddress(): string {
@@ -62,7 +78,7 @@ async function deliver(
 ): Promise<void> {
   const resend = getResend();
   if (!resend) {
-    console.warn("Outbound email skipped: RESEND_API_KEY is not configured.");
+    // The reason (missing vs malformed) was reported by `getResend`.
     return;
   }
   try {
