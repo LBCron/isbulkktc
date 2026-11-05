@@ -131,6 +131,32 @@
         "code-review"
       ],
       "laneLabel": "lane:infra"
+    },
+    "verify": {
+      "brief": "11-verify",
+      "branch": "lane/verify",
+      "wave": 0,
+      "label": "agent:test",
+      "laneLabel": "lane:verify",
+      "scope": "olgunlaşma sonrası gerçek dünya doğrulaması: e-posta teslimi, spam skoru, indekslenme",
+      "skills": [
+        "qa-changes",
+        "evidence-based-citations",
+        "code-review"
+      ]
+    },
+    "icerik": {
+      "brief": "12-icerik",
+      "branch": "lane/icerik",
+      "wave": 0,
+      "label": "agent:content",
+      "laneLabel": "lane:icerik",
+      "scope": "kullanıcı metni 6 dil: src/messages/**, src/i18n/**, ürün dili ve tonu",
+      "skills": [
+        "plain-english-content",
+        "technical-writing",
+        "code-review"
+      ]
     }
   },
   "maxReusesPerConversation": 2
