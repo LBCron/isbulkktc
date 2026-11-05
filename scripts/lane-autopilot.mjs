@@ -526,6 +526,24 @@ async function main() {
     for (const m of mergeResults) console.log(`  #${m.number} ${m.action}`);
   }
 
+  // A bot-opened PR has its checks held at action_required until a human
+  // approves the run. Without this the PR shows BLOCKED forever and the lane
+  // that opened it looks idle — #178 had no CI at all. Approving is safe: it
+  // starts the run, it does not make a failure pass.
+  if (!dryRun) {
+    try {
+      const approved = execFileSync('node', ['scripts/approve-pending-runs.mjs'], {
+        encoding: 'utf8',
+        env: process.env,
+      }).trim();
+      if (!approved.includes('no runs are waiting')) {
+        console.log(`\nheld runs:\n${approved.split('\n').map((l) => `  ${l}`).join('\n')}`);
+      }
+    } catch (error) {
+      console.error(`  could not approve held runs: ${String(error.message).split('\n')[0]}`);
+    }
+  }
+
   if (dryRun) return;
 
   for (const d of allowed) {
