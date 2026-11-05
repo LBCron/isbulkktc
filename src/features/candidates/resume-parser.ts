@@ -340,16 +340,84 @@ const dateRangePattern = new RegExp(
 );
 const singleYearPattern = /(?:19|20)\d{2}/;
 
+/**
+ * Words that mark a line as personal data rather than an employment or
+ * education period. A CV's birth date, address and phone lines carry years too,
+ * and the date token accepts a bare year, so without this filter
+ * "1995-2000 doğumlu" or "Adres: Lefkoşa - 2019" leaked a year into work
+ * experience (#208).
+ *
+ * Stems match Turkish suffixes ("doğum" → "doğumlu", "adres" → "adresi");
+ * ambiguous English words stay exact so "management" does not read as "age".
+ * "doğu" (east, as in "Doğu Akdeniz Üniversitesi") is deliberately not a stem.
+ */
+const personalDataStems = [
+  "doğum",
+  "dogum",
+  "telefon",
+  "adres",
+  "kimlik",
+  "pasaport",
+  "nüfus",
+  "nufus",
+];
+const personalDataWords = new Set([
+  "age",
+  "born",
+  "birth",
+  "birthday",
+  "dob",
+  "address",
+  "phone",
+  "tel",
+  "gsm",
+  "tc",
+  "tcno",
+  "yaş",
+  "yaşı",
+  "yaşında",
+  "yas",
+  "iban",
+]);
+
+function isPersonalDataLine(line: string): boolean {
+  const words = line
+    .toLocaleLowerCase("tr-TR")
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+  return words.some(
+    (word) =>
+      personalDataWords.has(word) ||
+      personalDataStems.some((stem) => word.startsWith(stem)),
+  );
+}
+
+/**
+ * A range whose two endpoints are years must run forwards and stay plausible
+ * (a >60-year "career" is a misread, not a period). Endpoints that are not years
+ * — "Present", "Halen" — are always accepted.
+ */
+function isValidYearRange(start: string, end: string): boolean {
+  const startYear = singleYearPattern.exec(start)?.[0];
+  const endYear = singleYearPattern.exec(end)?.[0];
+  if (!startYear || !endYear) return true;
+  const from = Number(startYear);
+  const to = Number(endYear);
+  return from <= to && to - from <= 60;
+}
+
 type DateRange = { startDate: string; endDate: string; matched: string };
 
 function extractDateRange(line: string): DateRange | null {
+  if (isPersonalDataLine(line)) return null;
   const match = line.match(dateRangePattern);
   if (match) {
-    return {
-      startDate: match[1].trim().slice(0, 32),
-      endDate: match[2].trim().slice(0, 32),
-      matched: match[0],
-    };
+    const startDate = match[1].trim().slice(0, 32);
+    const endDate = match[2].trim().slice(0, 32);
+    // A backwards or absurd range is a misread; reject it outright rather than
+    // falling back to its bare start year.
+    if (!isValidYearRange(startDate, endDate)) return null;
+    return { startDate, endDate, matched: match[0] };
   }
   const single = line.match(singleYearPattern);
   if (single) {
@@ -381,6 +449,7 @@ const allDatePattern = new RegExp(dateToken, "gi");
 
 /** Every date token on a line, in order ("PMP | PMI | 2019 | 2024" → [2019, 2024]). */
 function extractDates(line: string): string[] {
+  if (isPersonalDataLine(line)) return [];
   return (line.match(allDatePattern) ?? []).map((value) => value.trim());
 }
 
