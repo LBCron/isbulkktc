@@ -4,6 +4,7 @@ import { z } from "zod";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/server/db/supabase-server";
 import { isPushConfigured } from "@/server/push/vapid";
+import { isAllowedPushEndpoint } from "@/server/push/push-endpoint";
 
 /**
  * Server actions for push subscription management.
@@ -18,7 +19,10 @@ import { isPushConfigured } from "@/server/push/vapid";
  */
 
 const subscriptionSchema = z.object({
-  endpoint: z.string().url().min(12).max(1024).startsWith("https://"),
+  // Keeps the documented `https://` contract and adds the host allowlist: the
+  // worker connects to this host server-side, so a bare scheme check is an SSRF
+  // (#262).
+  endpoint: z.string().url().min(12).max(1024).startsWith("https://").refine(isAllowedPushEndpoint, { message: "Unsupported push endpoint host." }),
   keys: z.object({
     p256dh: z.string().min(16).max(256),
     auth: z.string().min(8).max(128),
@@ -32,14 +36,16 @@ export type SavePushSubscriptionResult =
 export async function savePushSubscription(
   payload: unknown,
 ): Promise<SavePushSubscriptionResult> {
-  const parsed = subscriptionSchema.safeParse(payload);
-  if (!parsed.success) return { ok: false, reason: "invalid" };
-
+  // Authenticate before validating, so an anonymous caller learns nothing about
+  // the accepted endpoint shape (the route has the same ordering).
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, reason: "unauthenticated" };
+
+  const parsed = subscriptionSchema.safeParse(payload);
+  if (!parsed.success) return { ok: false, reason: "invalid" };
 
   // Device metadata is taken from the request, never from the caller, so a
   // client cannot forge the string the account's device list shows.
