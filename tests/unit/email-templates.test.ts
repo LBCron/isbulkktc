@@ -99,6 +99,64 @@ test("renderEmailLayout drops a javascript: call-to-action", () => {
   assert.ok(!html.includes("javascript:alert(1)"));
 });
 
+test("the shell declares the recipient locale and direction (WCAG 3.1.1)", () => {
+  // The auth templates already emit lang/dir from the locale; the transactional
+  // shell hard-coded `lang="tr"` with no `dir`, so a Persian mail was announced
+  // as Turkish and laid out LTR (#271).
+  const render = (locale: string) =>
+    renderEmailLayout({
+      locale,
+      preheader: "p",
+      heading: "h",
+      footerNote: "f",
+      siteUrl: SITE,
+    });
+
+  for (const locale of ["tr", "en", "ru", "el", "de"]) {
+    assert.match(render(locale), new RegExp(`<html lang="${locale}" dir="ltr">`), `${locale} lang/dir`);
+  }
+  assert.match(render("fa"), /<html lang="fa" dir="rtl">/, "Persian must be rtl");
+
+  // A missing or malformed locale keeps the Turkish default rather than
+  // emitting nothing. A valid tag is passed through; the renderers resolve it
+  // to a shipped locale first, so `lang` always matches the copy language.
+  assert.match(render(undefined as unknown as string), /<html lang="tr" dir="ltr">/);
+  assert.match(render("!!"), /<html lang="tr" dir="ltr">/);
+  assert.match(render("fr"), /<html lang="fr" dir="ltr">/);
+});
+
+test("the RTL shell mirrors the header logo padding", () => {
+  const render = (locale: string) =>
+    renderEmailLayout({
+      locale,
+      preheader: "p",
+      heading: "h",
+      footerNote: "f",
+      siteUrl: SITE,
+    });
+  assert.ok(render("tr").includes("padding-left:14px"));
+  assert.ok(render("fa").includes("padding-right:14px"));
+  assert.ok(!render("fa").includes("padding-left:14px"));
+});
+
+test("every transactional renderer emits the recipient's lang and dir", () => {
+  // End-to-end through the renderers the mailer actually calls, not just the
+  // shell: the locale must survive from the caller to `<html>`.
+  for (const locale of EMAIL_LOCALES) {
+    const email = renderWelcomeEmail({
+      locale,
+      siteUrl: SITE,
+      audience: "candidate",
+      actionUrl: `${SITE}profile/dashboard`,
+    });
+    const dir = locale === "fa" ? "rtl" : "ltr";
+    assert.ok(
+      email.html.includes(`<html lang="${locale}" dir="${dir}">`),
+      `${locale}: welcome email must declare lang/dir`,
+    );
+  }
+});
+
 test("all auth templates render in all six locales", () => {
   for (const locale of EMAIL_LOCALES) {
     const ctx = { locale, siteUrl: SITE };
