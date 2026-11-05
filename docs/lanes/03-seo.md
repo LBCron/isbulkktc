@@ -276,3 +276,62 @@ Yerel standalone harness'te 404 sayfası gerçek tarayıcıda boş render edildi
 (`<html id="__next_error__">`, `lang` yok). **Üretimde** (`isbulkktc.com`)
 aynı URL `404` + `lang` + yerelleşmiş `h1` ile düzgün render ediyor; bu yüzden
 yerel gözlem harness artifact'ı olarak işaretlendi, bulgu sayılmadı.
+## Micro-denetim turu 3 — regresyon koruması (#126 + #127, aynı lane tekrar)
+
+Bu oturumda `main` ilerlemişti: aynı lane'in önceki turu **#142**'yi merge
+etmişti (çevrilmiş-slug yönlendirmesi, 404 robots çelişkisi, iki link boşluğu).
+Bu yüzden aynı düzeltmeyi **tekrar yazmadım**; onun yerine kalan boşluğu kapattım.
+
+### Kalan boşluk: hiç regresyon testi yoktu
+
+Bu hata sınıfı **iki kez** shiple çıktı (#105 ve #142) ve **hiçbir birim testi**
+`getLocalizedSlugPathnames` / `resolveLocalizedSlugPathname` sözleşmesini
+tutmuyordu:
+
+```
+grep -rn 'resolveLocalizedSlugPathname|getLocalizedSlugPathnames' tests/ src/ \
+  | grep -v 'src/lib/seo.ts|src/app/'   ->  (boş)
+```
+
+Ayrıca test edilemezdi: `src/lib/seo.ts` `@/server/config/app-url` üzerinden
+`server-only` çekiyor, o yüzden saf slug mantığı ondan ayrılamıyordu.
+
+### Düzeltme
+
+- `src/lib/localized-slug-pathnames.ts` (yeni, **saf** — `server-only` yok):
+  iki yardımcı buraya taşındı. `resolveLocalizedSlugPathname` ayrıca
+  **kendine-yönlendirme** ve **yanlış-makale** uçlarını kapatacak şekilde
+  sıkılaştırıldı:
+  - istenen dil slug'a zaten sahipse `null` (eskiden aynı URL'e redirect riski),
+  - hedef dilin listesi kısaysa / eşleşen slug aynıysa `null` (eskiden konumla
+    farklı makaleye redirect riski).
+- `src/lib/seo.ts`: iki yardımcıyı buradan re-export eder; route'lar ve
+  `sitemap.ts` aynı import'u kullanmaya devam eder (davranış değişmedi).
+- `src/lib/localized-slug-pathnames.test.ts` (yeni): **7 birim testi** —
+  çevrilmiş slug çözümü, konumla eşleme, bilinmeyen slug → `null`, kendi-dil
+  sahipliği → `null`, kısa hedef liste → `null`, ve `getLocalizedSlugPathnames`
+  haritası.
+
+### Kanıt
+
+| Ölçüm | Önce | Sonra |
+|---|---|---|
+| `resolveLocalizedSlugPathname` için birim testi | 0 | 7 |
+| Taranan iç hedef / 404 | 550 / **0** | 550 / **0** (değişmedi) |
+| Sitemap `<loc>` / ölü | 186 / 0 | 186 / 0 (değişmedi) |
+| Dil değiştirici hedefi | 308 → kendi slug'ı | 308 → kendi slug'ı (değişmedi) |
+| Gerçek 404 (`/rehber/not-a-guide`) | 404 | 404 (değişmedi) |
+
+`test:unit`: **402/402** (395 → 402, +7).
+
+### Hâlâ açık (başka lane)
+
+- **#144** — dil değiştiricinin kök nedeni `src/components/layout/site-header.tsx`
+  (LANE-TASARIM): `usePathname()` çevrilen slug'ı her dilin önüne koyuyor.
+  Route tarafındaki 308 fallback savunma derinliğidir; asıl düzeltme bileşende.
+- **#141** — legal sayfaların 6 dilde çevirisi (LANE-URUN + LANE-SUPABASE).
+
+### Kapılar (bu tur)
+
+`lint ✅` `typecheck ✅` `check:frontend-source ✅` `test:unit ✅ (402/402)`
+
