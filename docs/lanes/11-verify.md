@@ -16,12 +16,20 @@ süre geçtikten sonra. Hemen değil: DNS yayılımı ve indeksleme gecikmelidir
 
 ### Katman 1 — kimlik doğrulama (otomatik, kimlik bilgisi gerekmez)
 
-- **SPF:** `isbulkktc.com` TXT kaydı Resend/Amazon SES'i içeriyor mu? Lookup
-  sayısı 10'u aşıyor mu?
+- **SPF:** kök TXT kaydı Resend/Amazon SES'i içeriyor mu? Lookup sayısı 10'u
+  aşıyor mu? Kök kayıt göndericiyi yetkilendirmiyorsa, envelope (Return-Path)
+  alt alanına bak — Resend `send.`/`rsend.` üzerinden gönderir ve DMARC relaxed
+  alignment ile hizalanır; yalnız kök kayda bakmak doğru kurulumu "FAIL"
+  gösterir.
 - **DKIM:** `resend._domainkey` var mı, `p=` geçerli mi?
 - **DMARC:** politika ne (`p=none|quarantine|reject`)? `rua` raporluyor mu?
 - **Hizalama:** SPF domain'i ile DKIM `d=` domain'i From adresiyle hizalı mı?
-- **RBL:** `isbulkktc.com` bir kara listede mi (Spamhaus vb.)?
+- **RBL:** alan adı bir kara listede mi (`dbl.spamhaus.org`,
+  `multi.surbl.org`), ve gönderim IP'leri mi (`zen.spamhaus.org`,
+  `bl.spamcop.net` — ters IPv4 formunda)? Bölge yalnız IP listeliyorsa alan adı
+  sorgusu daima NXDOMAIN döner ve "temiz" sanılır; sorgu formu bölge türüne
+  uymalı. Bir bölgenin yanıt verdiği, bilinen-listeli bir sentinel ile önce
+  kanıtlanmalı — yanıt vermeyen bölge "temiz" değil **bilinmiyor**'dur.
 - **MX:** gelen posta doğru yere mi gidiyor?
 
 Bunlar deterministik ve kimlik bilgisi gerektirmez — her geçişte çalışabilir.
