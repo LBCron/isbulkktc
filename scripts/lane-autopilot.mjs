@@ -42,6 +42,10 @@ const STATE_FILE = join(REPO_ROOT, '.lane-state.json');
 const { repo: REPO, provider: PROVIDER, lanes: LANES } = REGISTRY;
 const MAX_ATTEMPTS = REGISTRY.maxAttemptsPerLane ?? 3;
 const SANDBOX_BUDGET = REGISTRY.sandboxBudget ?? 6;
+// How many tasks one conversation may take before a fresh one is started.
+// A conversation re-sends its whole transcript every turn, so reuse is a
+// context cost, not a saving — see issue #218.
+const MAX_REUSES = REGISTRY.maxReusesPerConversation ?? 2;
 
 const key = process.env.OPENHANDS_API_KEY;
 const ghToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? process.env.GH_TOKEN;
@@ -536,18 +540,31 @@ async function main() {
       );
       let entry = state[d.name] ?? { attempts: 0 };
 
-      if (reusable) {
+      // Reuse is bounded. A conversation keeps every task's transcript, and each
+      // new turn re-sends all of it; past MAX_REUSES the lane gets a fresh
+      // conversation so the context stays small. Unbounded reuse is what pushed
+      // one lane past 100M prompt tokens (issue #218).
+      const reuses = entry.reuses ?? 0;
+      const reuseAllowed = reuses < MAX_REUSES;
+
+      if (reusable && reuseAllowed) {
         await sendToExisting(reusable.id, d.name, d.context);
         entry.attempts = (entry.attempts ?? 0) + 1;
+        entry.reuses = reuses + 1;
         entry.lastConversationId = reusable.id;
         entry.lastStatus = 'REUSED';
         entry.lastError = null;
         entry.updatedAt = new Date().toISOString();
         state[d.name] = entry;
         console.log(
-          `  ${d.name}: reused sandbox (attempt ${entry.attempts})`,
+          `  ${d.name}: reused sandbox (attempt ${entry.attempts}, reuse ${entry.reuses}/${MAX_REUSES})`,
         );
         continue;
+      }
+      if (reusable && !reuseAllowed) {
+        console.log(
+          `  ${d.name}: context budget spent (${reuses} reuses), starting a fresh conversation`,
+        );
       }
 
       if (resumable) {
