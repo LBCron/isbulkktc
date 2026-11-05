@@ -13,6 +13,7 @@ import { getDistrictMessageKey } from "@/features/jobs/presentation";
 import { resolveDistrictFromSlug } from "@/features/locations/northern-cyprus-districts";
 import { routing, type AppLocale } from "@/i18n/routing";
 import { createLocalizedPageMetadata } from "@/lib/seo";
+import { SITE_NAME } from "@/content/ai-visibility/site";
 import { getAppBaseUrl } from "@/server/config/app-url";
 import { searchPublicJobs } from "@/server/dal/jobs";
 
@@ -78,13 +79,18 @@ export default async function DistrictPage({ params }: DistrictPageProps) {
   });
   const results = await searchPublicJobs(filters);
 
+  const navCopy = await getTranslations({ locale, namespace: "Nav" });
   const structuredData = buildDistrictPageStructuredData({
     locale,
     baseUrl: getAppBaseUrl(),
     districtSlug: requestedDistrict,
     districtName,
-    jobsLabel: searchCopy("title"),
-    homeLabel: searchCopy("eyebrow"),
+    // Breadcrumb labels must name the pages the trail walks through, not the
+    // home hero's slogans: `HomeJobSearch.title`/`eyebrow` are marketing copy
+    // ("Fırsatları hesap açmadan keşfedin."), which a crawler would read as the
+    // title of the home page and of the jobs index in the breadcrumb.
+    jobsLabel: navCopy("jobs"),
+    homeLabel: SITE_NAME,
   });
 
   return (
