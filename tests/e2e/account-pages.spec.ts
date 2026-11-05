@@ -88,6 +88,10 @@ async function expectConfiguredOAuthProviders(
 test("registration, sign-in, and recovery pages stay localized and usable", async ({
   page,
 }) => {
+  // Two locales, each driving registration, sign-in, recovery and a video
+  // control across several viewports. Measured at ~22s, so the 60s default
+  // leaves thin headroom on a loaded runner.
+  test.setTimeout(120_000);
   await page.setViewportSize({ width: 1280, height: 900 });
 
   for (const locale of ["tr", "en"] as const) {
