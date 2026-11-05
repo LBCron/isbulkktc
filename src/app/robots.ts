@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { routing } from "@/i18n/routing";
 import { getAppBaseUrl } from "@/server/config/app-url";
 
 export default function robots(): MetadataRoute.Robots {
@@ -15,7 +16,18 @@ export default function robots(): MetadataRoute.Robots {
       // how a disallowed URL still ends up indexed (snippet-less) from inbound
       // links. Route handlers like the OAuth callback cannot carry a meta tag,
       // so those stay disallowed.
-      disallow: ["/api/", "/auth/"],
+      //
+      // `localePrefix: "as-needed"` serves the callback under every locale
+      // prefix (`/en/auth/callback`, ...), so a bare `/auth/` rule would leave
+      // the five prefixed copies crawlable. robots.txt has no wildcard in the
+      // middle of a path, so each prefix is listed explicitly.
+      disallow: [
+        "/api/",
+        "/auth/",
+        ...routing.locales
+          .filter((locale) => locale !== routing.defaultLocale)
+          .map((locale) => `/${locale}/auth/`),
+      ],
     },
     sitemap: new URL("/sitemap.xml", siteUrl).toString(),
     host: siteUrl.origin,

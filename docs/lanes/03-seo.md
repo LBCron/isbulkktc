@@ -197,3 +197,82 @@ Denetlenmeyen: yok.
   önüne koyuyor. Route tarafında 307 fallback eklendi (savunma derinliği), ama
   doğru düzeltme header'ın `getPathname`/`localizedPathnames` ile hedef dilin
   slug'ını çözmesidir → LANE-TASARIM'a not.
+
+---
+
+## Micro-denetim raporu — tur 2 (#126 SEO meta + #127 link bütünlüğü)
+
+```
+Lane: LANE-SEO        Branch: lane/seo        PR: (bu PR)
+Değişen dosyalar: src/lib/seo.ts,
+                  src/app/[locale]/layout.tsx,
+                  src/app/[locale]/(public)/rehber/[slug]/page.tsx,
+                  src/app/[locale]/(public)/blog/[slug]/page.tsx,
+                  src/app/robots.ts,
+                  docs/lanes/03-seo.md
+Kontroller: lint ✅  typecheck ✅  check:frontend-source ✅
+            test:unit ✅ (392/392)  seo.spec.ts ✅ (18/20; 2 test seedli ilan verisi ister)  build ✅ (NEXT_DIST_DIR=.next-lane-seo)
+            canlı standalone + gerçek tarayıcı (Playwright/chromium) doğrulaması ✅
+Canlıya dokundu mu: hayır (yalnızca okuma)
+```
+
+### Denetlenen dosyalar
+
+`git ls-files` → LANE-SEO sahipliği **42 dosya**: `src/lib/seo.ts`,
+`src/app/sitemap.ts`, `src/app/robots.ts`, `scripts/submit-indexnow.mjs` ve
+`src/app/[locale]/**` altındaki 37 route/layout. Hepsi tarandı; "bakılmadı" yok.
+
+### Bulgular
+
+| # | Dosya:satır | Boyut | Gözlenen | Beklenen | Etki | Durum |
+|---|---|---|---|---|---|---|
+| 1 | `src/lib/seo.ts` (`createLocalizedPageMetadata`) | SEO meta / tutarlılık | Rehber ve blog detay sayfaları `og:type=website` yayınlıyordu, ama aynı sayfanın JSON-LD'si `Article` | `og:type=article` | Sosyal graf ile sayfanın kendi `@type`'ı çelişir; OGP `article` alanları (published_time vb.) uygulanmaz | düzeltildi |
+| 2 | `src/app/robots.ts:18` | link bütünlüğü / indeksleme | `Disallow: /auth/` yalnız öneksiz yolu kapsıyor; gerçek callback URL'leri `/{locale}/auth/callback` (5 dil) → **taranabilir** | her önekli auth yolu da disallow | OAuth callback'i robots meta taşıyamaz; önekli 5 kopya crawler'a açık | düzeltildi |
+| 3 | `src/lib/seo.ts` twitter bloğu + `layout.tsx:119` | SEO meta | Hiçbir sayfa `twitter:image:alt` yayınlamıyordu (og:image:alt vardı) | erişilebilir/yerelleşmiş alt | X/Twitter kartında görsel alt metni yok | düzeltildi |
+
+### Kanıt (üretim standalone + gerçek tarayıcı)
+
+- **#1 önce:** `curl /rehber/kktc-is-bulma-rehberi` → `og:type=website` +
+  JSON-LD `"@type":"Article"`. **Sonra:** `og:type=article`; `/`, `/jobs`, `/sss`
+  `website` kalıyor (39/39 tarayıcı kontrolü geçti).
+- **#2 önce:** `curl /robots.txt` → yalnız `Disallow: /auth/`; `/en/auth/callback`
+  307 dönüyor (taranabilir). **Sonra:** `Disallow: /en/auth/`, `/ru/auth/`,
+  `/el/auth/`, `/fa/auth/`, `/de/auth/` eklendi; `/login`, `/register` hâlâ
+  disallow **değil** (noindex meta kuralı korunuyor).
+- **#3 önce:** hiçbir sayfada `twitter:image:alt` yok. **Sonra:** her sayfada
+  diline göre `og:image:alt` ile aynı metin.
+
+### Doğrulanan ve sağlam bulunanlar (tur 2)
+
+- Sitemap **186 `<loc>`**, hepsi 200; her `<loc>` self-canonical **ve**
+  `og:url`'e eşit (186/186).
+- Tam tarama (400 sayfa): **0 kırık iç bağlantı**; tüm keşfedilen yollar 200.
+- Çevrilen slug'lı sayfaların yanlış-dil slug'ları **307** ile doğru kardeş
+  sayfaya gidiyor; bilinmeyen slug **404** (tur 1 düzeltmesi korunuyor).
+- 404 yanıtı tek `robots: noindex` taşıyor; çelişkili `googlebot` yok.
+- `robots.txt` `noindex` sayfalarını (`/login`, `/admin`, ...) hâlâ disallow
+  etmiyor.
+- `og:image` 1200×630 (~161 KB) + `og:image:type=image/webp`; `twitter:card`
+  `summary_large_image`.
+- Canonical hep mutlak string (`URL` instance tuzağı yok); içe aktarılan ilanlar
+  tek (tr) canonical.
+- JSON-LD tüm sayfalarda geçerli JSON (`WebSite`+`SearchAction`, `Organization`,
+  `BreadcrumbList`, `CollectionPage`, `FAQPage`, `Article`); `</script>` kaçağı yok.
+
+### Devredilen (tur 1'den, hâlâ açık)
+
+- **#141** — `/privacy`, `/cookies`, `/terms` meta+gövdesi 6 dilde aynı Türkçe.
+  Sahibi LANE-URUN (`src/messages/**`) + LANE-SUPABASE (`seed-managed-content.sql`).
+
+### Sahibin yapması gerekenler
+
+- `NEXT_PUBLIC_{GOOGLE,BING,YANDEX}_SITE_VERIFICATION` — kod hazır, Vercel'de
+  değer girilince etiketler yayınlanır. **Hâlâ yok.**
+- **#141** çeviri işi.
+
+### Not (tur 2, kanıtlanamayan)
+
+Yerel standalone harness'te 404 sayfası gerçek tarayıcıda boş render edildi
+(`<html id="__next_error__">`, `lang` yok). **Üretimde** (`isbulkktc.com`)
+aynı URL `404` + `lang` + yerelleşmiş `h1` ile düzgün render ediyor; bu yüzden
+yerel gözlem harness artifact'ı olarak işaretlendi, bulgu sayılmadı.
