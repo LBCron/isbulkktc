@@ -439,3 +439,57 @@ veriyor; ama sahiplik tablosu `supabase/**`'ı **LANE-SUPABASE**'e veriyor
 (`lane-collisions.mjs` de öyle diyor). Kural: sahip olmadığın dosyaya yazma.
 #191'e karar isteyen yorum bırakıldı; ayrıca `lane-collisions.mjs` CI'a bağlı
 değil (INFRA önerisi). LANE-URUN o iki dosyaya **yazmadı**.
+
+---
+
+## Tur 8 — kullanıcıya iç veri sızan ilçe metriği (#220)
+
+### Alınan issue
+Kuyrukta **yalnız `lane:urun`** etiketli (handoff'suz) tek iş **#220** idi:
+`/companies` sayfası, hiç filtre seçilmemişken "Güvenilir ilçe bilgisi
+bulunmayan 53 şube…" notunu basıyordu.
+
+### Doğrulanan kanıt (canlı + kod)
+- Kod: `company-directory.tsx:414` notu **koşulsuz** render ediyordu; sayaç
+  (`:67`) `companies` (tüm rehber) üzerinden hesaplanıyordu, `filteredCompanies`
+  değil. Kullanıcı 3 sonuç görse de not "53 şube" diyordu.
+- Üretim standalone + gerçek Chromium: SSR'de `company-directory-source-note`
+  paragrafı **2** (biri hukuki `sourceNote`, biri iç metrik).
+
+### Karar: Seçenek 1 — notu tamamen kaldır
+İç veri kalitesi metriği; kullanıcı ne olduğunu anlamıyor, filtre seçmemişken
+alakasız, "dahil edilmez" olumsuz ve verinin güvenilmez olduğu izlenimini
+veriyor. `sourceNote` (hukuki sorumluluk reddi) **kaldı** — gerekli.
+
+### Değişen dosya (yalnız sahibim)
+`src/features/companies/company-directory.tsx` — 16 satır silindi:
+`unclassifiedLocationCount` memo'su ve `districtDataNote` paragrafı.
+`useMemo` hâlâ `categories`/`filteredCompanies` için kullanılıyor.
+
+### Fonksiyonel doğrulama (gerçek tarayıcı)
+```
+en: note paragraphs = 1; visible internal-data phrases = []
+de: note paragraphs = 1; visible internal-data phrases = []
+```
+SSR: `company-directory-source-note` **2 → 1**.
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (494 test, 0 fail)/test:security
++ `bun run build` (throwaway `NEXT_DIST_DIR`) → hepsi yeşil. Canlıya dokunulmadı.
+
+### Devredilen: #255 — LANE-ICERIK (`src/messages/**`)
+Notu basan kod gitti ama **`CompanyDirectory.districtDataNote`** anahtarı altı
+katalogda duruyor. `src/messages/**` sahiplik tablosunda **sahipsiz** (LANE-ICERIK
+henüz tabloda ve `scripts/lanes.json`'da yok). Kural: sahibi olmadığın dosyaya
+yazma → `agent:content` + `agent:handoff` + `lane:icerik` ile issue #255 açıldı.
+
+### Denetim tablosu (companies dilimi)
+
+| Boyut | Sonuç |
+|---|---|
+| Doğruluk / sızıntı | ⚠️ **2 bulgu** — iç metrik koşulsuz render + filtresiz sayaç (düzeltildi) |
+| Hata yolu / durum | ✅ boş/yükleniyor/hata durumları gerçek (empty state, pagination) |
+| Erişilebilirlik | ✅ kontroller etiketli; `role="status" aria-live` sonuç sayısı; dış linklerde `rel="noopener noreferrer"` |
+| Linkler | ✅ `href`'ler geçerli (tel/mailto/maps/web), `target="_blank"` + `rel` |
+| Mantık | ✅ sayfalama `Math.min(page, pageCount)` ile sınırlı; filtre değişince `setPage(1)` |
+| Test | ✅ mevcut E2E `company-directory.spec.ts` filtre/empty akışını kapsıyor |
