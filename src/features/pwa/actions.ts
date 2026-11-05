@@ -4,6 +4,7 @@ import { z } from "zod";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/server/db/supabase-server";
 import { isPushConfigured } from "@/server/push/vapid";
+import { isAllowedPushEndpoint } from "@/server/push/push-endpoint";
 
 /**
  * Server actions for push subscription management.
@@ -18,7 +19,10 @@ import { isPushConfigured } from "@/server/push/vapid";
  */
 
 const subscriptionSchema = z.object({
-  endpoint: z.string().url().min(12).max(1024).startsWith("https://"),
+  // Keeps the documented `https://` contract and adds the host allowlist: the
+  // worker connects to this host server-side, so a bare scheme check is an SSRF
+  // (#262).
+  endpoint: z.string().url().min(12).max(1024).startsWith("https://").refine(isAllowedPushEndpoint, { message: "Unsupported push endpoint host." }),
   keys: z.object({
     p256dh: z.string().min(16).max(256),
     auth: z.string().min(8).max(128),

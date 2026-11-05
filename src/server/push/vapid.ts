@@ -1,6 +1,7 @@
 import "server-only";
 
 import webpush, { type PushSubscription as WebPushSubscription } from "web-push";
+import { isAllowedPushEndpoint } from "./push-endpoint";
 
 /**
  * VAPID configuration for Web Push.
@@ -72,6 +73,7 @@ export type PushSendResult =
   | { status: "delivered"; statusCode: number }
   | { status: "gone"; statusCode: number }
   | { status: "failed"; statusCode: number; retryable: boolean }
+  | { status: "blocked" }
   | { status: "not_configured" };
 
 export type PushTarget = {
@@ -94,6 +96,18 @@ export async function sendPushMessage(
   payload: string,
 ): Promise<PushSendResult> {
   if (!ensureConfigured()) return { status: "not_configured" };
+
+  // Defence in depth: the registration boundary already rejects a non-push
+  // host, but a row written before that guard existed (or through the RPC
+  // directly) must not turn the worker into an SSRF probe. A blocked endpoint
+  // is permanent, so it is reported like a gone subscription and retired.
+  if (!isAllowedPushEndpoint(target.endpoint)) {
+    console.error("push_health", {
+      event: "push_endpoint_blocked",
+      subscriptionId: target.subscriptionId,
+    });
+    return { status: "blocked" };
+  }
 
   const subscription: WebPushSubscription = {
     endpoint: target.endpoint,

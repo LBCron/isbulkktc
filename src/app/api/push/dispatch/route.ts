@@ -125,9 +125,10 @@ export async function POST(request: Request) {
         continue;
       }
 
-      if (result.status === "gone") {
-        // The browser subscription no longer exists; retire it so it is not
-        // targeted again.
+      if (result.status === "gone" || result.status === "blocked") {
+        // The browser subscription no longer exists, or its endpoint is not a
+        // push service (a pre-allowlist row). Retire it so it is not targeted
+        // again — and so the worker never connects to it.
         await supabase.rpc("record_push_delivery_result", {
           _subscription_id: target.subscription_id,
           _delivered: false,
