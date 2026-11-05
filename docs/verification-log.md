@@ -135,3 +135,47 @@ Yani düzeltme yalnız yanlış pozitifi kapatır, doğru sonucu değiştirmez.
 
 **Teşhis:** teknik engel yok; otorite/hacim sorunu. Domain yaşı 7 hafta,
 207 URL, backlink yok. Bot trafiği **uygulanmadı** (spam cezası riski).
+
+## 2026-11-05 — tur 4: arama görünürlüğü artık ölçülebilir (LANE-VERIFY, #187)
+
+Yukarıdaki tablo elle ölçülmüştü ve yeniden üretilebilir bir aracı yoktu
+(`verify-production-deployment.mjs` yalnız HTTP durumuna bakıyor). Aynı sınıf
+hata — aracın kendi kusurunu sonuç sanması — arama yüzeyinde de mümkün olduğu
+için ölçüm otomatikleştirildi.
+
+**Yeni araç:** `scripts/verify-indexing.mjs` (`npm run indexing:verify`),
+`scripts/verify-indexing.test.mjs` (13 test). Kaynak yok, kimlik bilgisi yok;
+Cloudflare meydan okuması `skip` sayılır (yanlış `fail` değil).
+
+Ölçtüğü dört katman: robots.txt (izin + sitemap ilanı), sitemap (`<loc>`
+mutlak/aynı origin/`/tr` öneki yok + tam hreflang seti), örneklenen sayfalar
+(200 + `noindex` yok + canonical sitemap `<loc>` ile eşleşiyor), IndexNow
+anahtar dosyası (gövde anahtarla eşleşiyor).
+
+### Ölçülen (canlı, 2026-11-05)
+
+```
+PASS robots     allows crawling; sitemap https://isbulkktc.com/sitemap.xml
+PASS sitemap    207 URLs, all on-origin canonical; 186 with the full hreflang set,
+                21 single-locale (no hreflang)
+PASS single-loc 3 single-locale entries: the localized duplicate canonicalises back
+PASS pages      8 sampled pages are 200, indexable, with a matching canonical
+PASS indexnow   key file matches isbulkkt…
+0 failure(s), 0 warning(s), 0 skipped
+```
+
+Yukarıdaki elle tabloyu **doğruluyor**: robots izin veriyor, canonical mutlak,
+hreflang tam, `noindex` yok, sitemap 207 URL, IndexNow anahtarı canlı.
+
+### Aracın kendi kusuru (düzeltildi, aynı sınıf)
+
+İlk sürüm **her** sitemap girdisinde hreflang seti zorunlu tutuyordu. 21 iş
+ilanı sayfasında yoktu → sahte `FAIL`. Kanıt: `/en/jobs/source-iskibris-mimar`
+**200 dönüyor** ama canonical'ı `https://isbulkktc.com/jobs/source-iskibris-mimar`
+(Türkçe URL). Yani o sayfalar tek dilli; yerelleştirilmiş kopyalar tek canonical'a
+birleşiyor. Hreflang seti **isteğe bağlı** olmalı — zorunlu tutmak, kopya URL'leri
+alternate ilan edip kümeyi bölerdi. Kural düzeltildi; tek dilli girdi için
+"yerelleştirilmiş kopya geri canonical'lanıyor mu" kanıtı eklendi (`single-loc`).
+
+Bu, tur 2 (blokliste yanlış "temiz") ve tur 3 (SPF yanlış "PASS") ile aynı
+sınıf: ölçüm aracının kendi kusuru sonuç gibi okunmamalı.
