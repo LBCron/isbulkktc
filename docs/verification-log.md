@@ -51,6 +51,56 @@ Düzeltme: #171.
 - [ ] 3 adreste gelen kutusu doğrulaması (insan onayı, #187)
 - [ ] Auth şablonlarında marka kimliği (#171)
 
+## 2026-11-05 — araç doğruluğu düzeltmesi (LANE-VERIFY, #187 tur 2)
+
+İlk ölçümdeki iki "temiz" sonuç **yanlıştı**: araç, gerçek durumu değil kendi
+sorgu hatasını raporluyordu. Ölçüm aracının kendisi denetlendi.
+
+### Ölçülen (dns.google, 2026-11-05)
+
+```
+isbulkktc.com            v=spf1 include:_spf.mx.cloudflare.net ~all
+send.isbulkktc.com       v=spf1 include:amazonses.com ~all          <- Resend (aligned)
+rsend.isbulkktc.com      send.forge.rmta.net. + v=spf1 ip4:52.3.252.119 ip4:44.222.39.36 ip4:199.249.231.0/24 ~all
+resend._domainkey        p=MIGf… (216 karakter)                     <- DKIM
+_dmarc.isbulkktc.com     v=DMARC1; p=none; rua=mailto:dmarc@isbulkktc.com; fo=1
+MX                       3 route{1,2,3}.mx.cloudflare.net
+```
+
+### Düzeltilen araç bulguları (`scripts/verify-deliverability.mjs`)
+
+| # | Bulgu (gözlenen) | Beklenen | Düzeltme |
+|---|---|---|---|
+| 1 | SPF "FAIL: amazonses.com YOK" — yalnız kök TXT'ye bakıyordu | Envelope (Return-Path) alt alanı kontrol edilmeli; `send`/`rsend` SPF'yi taşır | `returnPathAlignment()`: alt alan SPF'si + DMARC relaxed alignment → `WARN` (kök) + `PASS` (Return-Path) |
+| 2 | Lookup sayımı tüm dizgede `mx` arıyordu → `_spf.mx.cloudflare.net` içindeki `mx` ikinci lookup sayılıyordu (1 yerine 2) | RFC 7208 §4.6.4 terim bazlı sayım | `countSpfDnsLookups()` token bazlı; 1 döndürür |
+| 3 | `zen.spamhaus.org` ve `bl.spamcop.net`'e **alan adı** soruluyordu; ikisi de yalnız IP bölgesi → daima NXDOMAIN → "temiz" | Alan bölgeleri: `dbl.spamhaus.org`, `multi.surbl.org`; IP bölgeleri: `zen`, `bl.spamcop.net` (ters IPv4) | Sorgu formu bölge türüne göre ayrıldı |
+| 4 | `127.255.255.252/254/255` (Spamhaus "sorgu reddedildi") `clean` sayılıyordu | Reddetme = bilinmiyor, temiz değil | `classifyDnsblAnswer()` yeni `refused` durumu |
+| 5 | Zone erişilebilirliği kanıtlanmadan "temiz" deniyordu | Bilinen-listeli sentinel önce sorgulanmalı | `evaluateBlocklistZone()` sentinel kapısı; erişilemez bölge `unqueryable` |
+| 6 | `dnsbl.sorbs.net` sorgulanıyordu | SORBS 2024-06-05'te kapandı | Kaldırıldı |
+
+### Yeni ölçüm çıktısı (aynı gün, `node scripts/verify-deliverability.mjs`)
+
+```
+WARN SPF         kök kayıt göndericiyi yetkilendirmiyor, ama send.isbulkktc.com (Return-Path) yetkilendiriyor ve DMARC-aligned
+PASS SPF         send.isbulkktc.com (Return-Path) SPF göndericiyi yetkilendiriyor
+PASS DKIM        resend._domainkey var, 216 karakter
+WARN DMARC       p=none — yalnız izleme
+PASS MX          3 Cloudflare route
+WARN Blocklists  multi.surbl.org ve bl.spamcop.net temiz; dbl/zen.spamhaus.org erişilemez (sorgu reddedildi)
+FAIL Resend      anahtar re_ ile başlamıyor (len 36) — #186, insan düzeltmesi
+```
+
+Spamhaus bölgeleri bu çözümleyiciden (Google Public DNS) yanıt vermiyor —
+sentinel kapısı bunu "temiz" diye raporlamak yerine `unqueryable` olarak
+işaretliyor. Ölçüm artık kendi hatasını temizlik sanmıyor.
+
+### Testler
+
+`scripts/verify-deliverability.test.mjs` (yeni): 9 test — SPF terim sayımı ve
+10-lookup sınırı, gönderici yetkilendirme (SES / `ip4:`), `ip4:`/`ip6:` çıkarımı,
+DNS present/absent/error ayrımı, DNSBL listed/refused/clean, ters IPv4, sentinel
+kapısı, DMARC relaxed alignment. `bun run test:unit` içinde koşar.
+
 ## 2026-11-05 — arama görünürlüğü
 
 | Kontrol | Sonuç |
