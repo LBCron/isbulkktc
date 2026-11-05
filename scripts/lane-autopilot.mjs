@@ -125,6 +125,23 @@ function blockedIssues() {
   return JSON.parse(raw);
 }
 
+/** Issues handed from one lane to another to fix. */
+function handoffIssues() {
+  const raw = gh([
+    'issue',
+    'list',
+    '--state',
+    'open',
+    '--label',
+    'agent:handoff',
+    '--json',
+    'number,title,labels',
+    '--limit',
+    '50',
+  ]);
+  return JSON.parse(raw);
+}
+
 /**
  * Merge lane PRs that are ready.
  *
@@ -231,7 +248,14 @@ function kickoff(name, context) {
       'gövdesine tablo yaz. Atladığın dosyayı "bakılmadı" işaretle.',
     'KENDİNİ DOĞRULA: PR açmadan önce gate\'leri çalıştır; kırmızıysa düzelt. ' +
       `Aynı hata ${MAX_ATTEMPTS} denemede çözülmezse PR açma, \`agent:blocked\` ` +
-      'issue aç ve hatayı yaz.',
+      'issue aç ve hatayı yaz. `agent:blocked` yalnız "insan gerekli" içindir.',
+    // A defect in another lane's files is a handoff, not a human blocker.
+    // agent:blocked stops both the finder and the owner; agent:handoff gives
+    // the work to the owner and keeps the team moving.
+    'DEVİR: bulduğun eksik başka bir lane\'in dosyasındaysa, düzeltme; sahibinin ' +
+      'lane etiketiyle (`lane:<ad>`) ve `agent:handoff` ile issue aç, kanıtı koy. ' +
+      '`agent:blocked` KULLANMA — o, insan gerektiren tıkanma içindir ve hem ' +
+      'seni hem sahibi durdurur.',
     `Kurallar: main'e push YOK; kendi branch'in (${lane.branch}) + PR; canlı ` +
       "Supabase'e yazma (tek yazar LANE-SUPABASE'dir); sadece sahibi olduğun " +
       'dosyalara yaz; CI yeşil olsun.',
@@ -317,10 +341,27 @@ function isCapacityError(detail) {
   );
 }
 
+/**
+ * Issues that genuinely need a human, for this lane.
+ *
+ * `agent:blocked` means "an agent tried and could not finish" — the lane must
+ * stop and wait. It is NOT the same as a handoff: when one lane finds a defect
+ * in another lane's files, that is `agent:handoff`, which the owning lane is
+ * expected to pick up and fix. Conflating the two deadlocked the whole team:
+ * every handoff looked like a human blocker, so the finder stopped and the
+ * owner stopped too.
+ */
 function blockedForLane(name, issues) {
-  // Use the lane-specific label. The coarse discipline label (agent:backend)
-  // is shared by several lanes, so matching on it made every backend lane stop
-  // on one lane's blocked issue.
+  const laneLabel = LANES[name].laneLabel ?? `lane:${name}`;
+  return issues.find(
+    (issue) =>
+      (issue.labels ?? []).some((l) => (l.name ?? l) === laneLabel) &&
+      (issue.labels ?? []).some((l) => (l.name ?? l) === 'agent:blocked'),
+  );
+}
+
+/** Issues handed to this lane by another lane, to fix. */
+function handoffForLane(name, issues) {
   const laneLabel = LANES[name].laneLabel ?? `lane:${name}`;
   return issues.find((issue) =>
     (issue.labels ?? []).some((l) => (l.name ?? l) === laneLabel),
@@ -333,7 +374,9 @@ async function decide(name, ctx) {
   const pr = ctx.prs.find((p) => p.headRefName === lane.branch);
   const branchExists = ctx.branches.includes(`origin/${lane.branch}`);
   const blocked = blockedForLane(name, ctx.blocked);
+  const handoff = handoffForLane(name, ctx.handoffs);
 
+  // A human blocker stops the lane. A handoff is work: it does not stop it.
   if (blocked) {
     return { action: 'blocked', reason: `issue #${blocked.number} needs a human` };
   }
@@ -353,7 +396,11 @@ async function decide(name, ctx) {
   }
   return {
     action: 'spawn',
-    reason: state.attempts === 0 ? 'no work yet' : `retry ${state.attempts + 1}/${MAX_ATTEMPTS}`,
+    reason: handoff
+      ? `handoff #${handoff.number} to fix`
+      : state.attempts === 0
+        ? 'no work yet'
+        : `retry ${state.attempts + 1}/${MAX_ATTEMPTS}`,
     context: { previousError: state.lastError },
   };
 }
@@ -381,14 +428,16 @@ async function main() {
     process.exit(1);
   }
 
-  const [prs, blocked, tasks, sandboxes, idle, paused] = await Promise.all([
-    Promise.resolve(openPullRequests()),
-    Promise.resolve(blockedIssues()),
-    startTasks(),
-    runningSandboxes(),
-    idleConversations(),
-    pausedConversations(),
-  ]);
+  const [prs, blocked, handoffs, tasks, sandboxes, idle, paused] =
+    await Promise.all([
+      Promise.resolve(openPullRequests()),
+      Promise.resolve(blockedIssues()),
+      Promise.resolve(handoffIssues()),
+      startTasks(),
+      runningSandboxes(),
+      idleConversations(),
+      pausedConversations(),
+    ]);
 
   const branches = execFileSync('git', ['branch', '-r'], { encoding: 'utf8' })
     .split('\n')
@@ -402,7 +451,7 @@ async function main() {
       .map((t) => String(t.request?.title ?? '').replace(/^LANE-/, '')),
   );
 
-  const ctx = { prs, blocked, branches, state };
+  const ctx = { prs, blocked, handoffs, branches, state };
   const decisions = [];
   let running = sandboxes.length;
 
