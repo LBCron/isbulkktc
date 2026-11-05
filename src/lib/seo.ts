@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { routing, type AppLocale } from "@/i18n/routing";
+import {
+  getLocalizedSlugPathnames,
+  resolveLocalizedSlugPathname,
+} from "@/lib/localized-slug-pathnames";
 import { getAppBaseUrl } from "@/server/config/app-url";
+
+export { getLocalizedSlugPathnames, resolveLocalizedSlugPathname };
 
 // 1200x630 social card derived from the Girne harbour photo at its hero focal
 // point. The 3840x2500 hero itself is ~1.9 MB, which exceeds WhatsApp's ~300 KB
@@ -54,83 +60,6 @@ export function getLocalizedPageUrl(
         : `/${locale}${pathname}`;
 
   return new URL(localizedPath, baseUrl);
-}
-
-/**
- * Locale → pathname for a content family whose slug is translated per locale.
- *
- * Guides and editorial articles carry a different slug in each language
- * (`kktc-is-bulma-rehberi` vs `finding-a-job-in-northern-cyprus`) while the
- * locale files hold the same entries in the same order. Prefixing one language's
- * slug with another language's prefix — which is what assuming an identical
- * pathname does — advertises URLs that 404, so `hreflang` and the sitemap point
- * at pages that do not exist. Resolving the sibling slug by position keeps both
- * signals on real pages.
- *
- * `locale` must be the locale that owns `slug`; the index is looked up there and
- * then applied to every other locale's list. A locale whose list is a different
- * length, or an index that does not resolve, falls back to the caller's own
- * slug: an alternate that points at a *different* page is worse than one that
- * points at a missing one, because it asserts a false equivalence between two
- * distinct articles.
- */
-export function getLocalizedSlugPathnames({
-  section,
-  locale,
-  slug,
-  siblings,
-}: {
-  section: string;
-  locale: AppLocale;
-  slug: string;
-  siblings: (locale: AppLocale) => readonly { slug: string }[];
-}): Record<AppLocale, string> {
-  const ownerList = siblings(locale);
-  const index = ownerList.findIndex((entry) => entry.slug === slug);
-  const pathnames = {} as Record<AppLocale, string>;
-  for (const candidate of routing.locales) {
-    const candidateList = siblings(candidate);
-    const sibling =
-      index >= 0 && candidateList.length === ownerList.length
-        ? candidateList[index]
-        : undefined;
-    pathnames[candidate] = `${section}/${sibling?.slug ?? slug}`;
-  }
-  return pathnames;
-}
-
-/**
- * The pathname that serves `slug` in `locale` when `slug` belongs to a
- * *different* locale, or `null` when no locale knows the slug at all.
- *
- * A content slug is translated per locale, so the same page has a different
- * slug in each language. Any link that carries one language's slug under
- * another language's prefix (`/en/rehber/kktc-is-bulma-rehberi`) therefore
- * addresses a page that does not exist. Resolving the slug's owning locale and
- * returning the sibling slug for `locale` lets the route answer with a redirect
- * to the real page instead of a 404 — a link that is merely mislabelled still
- * lands the reader on the right article, and a crawler consolidates it onto the
- * canonical URL.
- */
-export function resolveLocalizedSlugPathname({
-  section,
-  locale,
-  slug,
-  siblings,
-}: {
-  section: string;
-  locale: AppLocale;
-  slug: string;
-  siblings: (locale: AppLocale) => readonly { slug: string }[];
-}): string | null {
-  for (const owner of routing.locales) {
-    const ownerList = siblings(owner);
-    const index = ownerList.findIndex((entry) => entry.slug === slug);
-    if (index < 0) continue;
-    const target = siblings(locale)[index];
-    return target ? `${section}/${target.slug}` : null;
-  }
-  return null;
 }
 
 export function createLocalizedPageMetadata({
