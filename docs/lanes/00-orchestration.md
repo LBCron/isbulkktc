@@ -32,7 +32,7 @@ Bu dosya kuralları ve sırayı tanımlar. Bir lane'in brief'i `docs/lanes/<ad>.
 | LANE-URUN | `src/features/**`, `!src/features/identity/**`, `!src/features/**/structured-data*.ts`, `!src/features/jobs/job-posting-structured-data.ts`, `src/server/config/**`, `src/server/push/**`, `src/lib/analytics/**`, `src/lib/pwa/**`, `docs/lanes/07-urun.md` |
 | LANE-QA | `tests/**`, `!tests/e2e/accessibility.spec.ts`, `!tests/unit/design-tokens.test.ts`, `!tests/unit/design-token-drift.baseline.json`, `!tests/security/**`, `docs/performance-budget.md`, `docs/lanes/08-qa.md` |
 | LANE-GÜVENLİK | `tests/security/**`, `docs/threat-model.md`, `docs/data-retention.md`, `docs/lanes/09-guvenlik.md` |
-| LANE-INFRA | `.github/**`, `scripts/**`, `package.json`, `docs/lanes/00-orchestration.md`, `docs/lanes/README.md` |
+| LANE-INFRA | `.github/**`, `scripts/**`, `package.json`, `bun.lock`, `docs/lanes/00-orchestration.md`, `docs/lanes/README.md` |
 
 **Her lane kendi brief'ine sahiptir.** Protokol "notlarını `docs/lanes/<ad>.md`'ye
 yaz" der; o dosya o lane'in çalışma alanıdır, başkası dokunmaz.
@@ -107,3 +107,86 @@ Canlıya dokundu mu: hayır / evet (ne yaptı)
 Sahibin yapması gerekenler: ...
 Sonraki lane için notlar: ...
 ```
+
+---
+
+## LANE-INFRA — tur notları
+
+> LANE-INFRA'nın brief'i bu dosyadır (`lanes.json` → `brief: "00-orchestration"`);
+> ayrı bir `docs/lanes/infra.md` yok. Bu yüzden infra tur notları buraya yazılır.
+
+### Tur — CI kapıları + mikro-denetim (PR #193, 2026-11-05)
+
+**Kapsam.** Atanmış iki `agent:infra` issue'su (#136, #150) alındı; ikisi de
+"suite'i script'e ve CI'a bağla" istiyordu. Ayrıca sahip olunan dosyalar
+(`.github/**`, `scripts/**`, `package.json`) AUDIT.md boyutlarıyla tarandı.
+
+**Yapılanlar.**
+
+1. `test:integration` script'i + `static` job'da ayrı adım. Katman
+   `--experimental-test-module-mocks` ister; bayraksız **3 dosya patlar, 0 geçer**
+   (`mock.module is not a function`), bayrakla **43/43**. Kanıtlandı.
+2. `test:visual` script'i + `e2e` job'da shard 1'e kısıtlı adım. Mevcut üretim
+   standalone build'i ve seed'li Supabase'i yeniden kullanır; sunucu adım içinde
+   başlatılıp (sinyal → port bırakma beklemesi) kapatılır ki ardından gelen
+   Playwright `webServer` :3000'e bağlanabilsin. Baseline'lar shard'lar arası
+   bit-bit aynı olduğu için dört kez koşmak kapsam katmaz.
+
+**Mikro-denetim bulguları (hepsi düzeltildi, hepsi kendi dosyamda).**
+
+| # | Bulgu | Düzeltme |
+|---|---|---|
+| 1 | `sharp` 7 dosyada doğrudan import ediliyor ama `package.json`'da yok; yalnız `next` optional dep + `@gltf-transform/cli` üzerinden geçişli çözülüyor (phantom dependency) | `devDependencies`'e eklendi |
+| 2 | `bun.lock` sahiplik tablosunda yok → `package.json`'ı düzenleyen lane lockfile'ı commit'leyemez, `lane-collisions.mjs` "owned by no lane" der | LANE-INFRA'ya eklendi |
+| 3 | `.github/copilot-instructions.md` "Available gates" listesi eksik (`check:frontend-source`, `test:security`, `test:integration`, `test:visual` yok) | Liste gerçek script'lerle hizalandı |
+| 4 | İki test katmanı hiçbir CI adımında değil → `tsx --test <glob>` eşleşmezse exit 0, sessiz yeşil | İki adım eklendi |
+
+**Doğrulama (gerçek üretim build'i + seed'li Supabase, yerel).** `lint`,
+`typecheck`, `check:frontend-source` temiz; `test:unit` 444/444; `test:security`
+35 pass / 3 todo (exit 0); `test:integration` 43/43; `test:visual` **12/12, 0px**.
+`test:visual` kırmızı→yeşil: bir baseline silinince çıkış 1 (`FAIL — 1/12`),
+geri konunca `PASS — 12/12`. Canlıya dokunulmadı.
+
+**Notlar (sonraki turlar için).**
+
+- Bu PR `.github/workflows/**` değiştirdiği için `agent-pr-automation.yml`
+  gereği otomatik merge **edilmez**; insan merge eder.
+- Yerel doğrulama için: sandbox'ta `sudo dockerd` + `sudo chmod 666
+  /var/run/docker.sock` ile Docker ayağa kalkar, `bun run db:start` seed'li
+  stack'i getirir. `next` standalone sunucusu çalışırken süreç adını
+  `next-server` yapar — `pkill -f standalone/server.js` onu öldürmez, portu
+  `/proc/<pid>/net/tcp` içinde `0BB8` arayarak bulup PID ile öldür.
+- **`NEXT_DIST_DIR` ile üretim build'i standalone sunucuyu bozar:** server.js
+  `config.distDir`'i kullanır ve static'i `<distDir>/static`'ten bekler, ama
+  standalone çıktısı `.next/static`'e kopyalanır → tüm `/_next/static/**` 404
+  döner ve `test:visual` 12/12 kırmızı olur. Bu yüzden görsel doğrulama
+  **varsayılan `.next`** ile build edilmeli (CI de öyle yapar).
+
+### Tur 2 — görsel kapı runner'da kırmızı: font rasterizasyonu (handoff #210)
+
+**Bulgu.** `test:visual` CI `e2e` job'ında (shard 1) 12/12 shot'ı kırmızı yaktı;
+ama **boyutlar birebir aynı**, fark **metin-ağırlıklı** (`jobs-card` %3.2,
+`header-el` %2.9, `header-de` %2.7 vs `packages-lead` %0.5, `home-search-fa`
+%0.9) ve **deterministik** (iki koşu bit-bit aynı sayaçlar).
+
+**Teşhis.** Aynı kod + aynı Chrome (157.0.8103.38) + CI'ın **tam build env'i**
+(`NEXT_PUBLIC_GA_MEASUREMENT_ID`, VAPID, Supabase değişkenleri) ile yerelde
+**12/12, 0px** yeşil. Tek değişken: OS — sandbox Debian 13, runner ubuntu-24.04.
+Shot'lar `el`/`ru`/`fa` içeriyor; self-hosted display yüzleri her glifi taşımıyor,
+OS'in seçtiği fallback aile pikselleri belirliyor. Yani bu bir **regresyon değil,
+ortam farkı**.
+
+**Karar.** Baseline'lar (`tests/visual/**`) LANE-QA'nın; bu PR onlara dokunmaz.
+Adım **advisory** yapıldı (`continue-on-error`) ama sessiz değil: 12 shot yine
+koşar, tablo basılır, kırmızı `::warning` + job summary + yüklenen diff
+artefaktlarıyla görünür olur, webfont erişilebilirlik teşhisi eklenir (404 olsa
+wiring hatası olurdu). Baseline'ların runner ortamında yeniden üretimi **#210**
+(LANE-QA, `agent:handoff`) ile izleniyor; o merge olunca `continue-on-error`
+kaldırılıp adım gerçek kapı olur.
+
+**Ders.** Ortama bağlı piksel baseline'ı, üretildiği OS'ten başka bir OS'te
+koşunca yanlış pozitif verir. Bir görsel kapıyı CI'a bağlamadan önce baseline'ın
+**hangi ortamda** üretildiğini ve runner'ın o ortamla aynı olup olmadığını
+doğrula; değilse önce baseline'ı runner'da üret.
+
+
