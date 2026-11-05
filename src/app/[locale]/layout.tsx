@@ -116,7 +116,7 @@ export async function generateMetadata({
       card: "summary_large_image",
       title: t("title"),
       description: t("description"),
-      images: [socialImage.url],
+      images: [{ url: socialImage.url, alt: socialImage.alt }],
     },
     icons: {
       icon: [

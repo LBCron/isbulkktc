@@ -140,6 +140,7 @@ export function createLocalizedPageMetadata({
   title,
   description,
   contentLocale,
+  openGraphType = "website",
 }: {
   locale: AppLocale;
   pathname: string;
@@ -161,6 +162,12 @@ export function createLocalizedPageMetadata({
    * otherwise advertise six URLs carrying identical text.
    */
   contentLocale?: AppLocale;
+  /**
+   * OGP object type. Editorial pages that carry `Article` structured data
+   * declare `article` here so the social graph agrees with the page's own
+   * `@type`; everything else is the default `website`.
+   */
+  openGraphType?: "website" | "article";
 }): Metadata {
   const baseUrl = getAppBaseUrl();
   // Next.js treats a `URL` instance passed as `alternates.canonical` as a base and
@@ -219,7 +226,7 @@ export function createLocalizedPageMetadata({
       description,
       url: canonicalUrl,
       siteName: "İşBul KKTC",
-      type: "website",
+      type: openGraphType,
       locale: openGraphLocales[locale],
       alternateLocale: routing.locales
         .filter((otherLocale) => otherLocale !== locale)
@@ -238,7 +245,12 @@ export function createLocalizedPageMetadata({
       card: "summary_large_image",
       title,
       description,
-      images: [imageUrl],
+      images: [
+        {
+          url: imageUrl,
+          alt: getLocalizedSocialImageAlt(locale),
+        },
+      ],
     },
   };
 }

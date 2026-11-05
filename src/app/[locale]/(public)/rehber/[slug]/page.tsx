@@ -69,6 +69,9 @@ export async function generateMetadata({
     }),
     title: guide.title,
     description: guide.description,
+    // The page carries `Article` structured data, so the social graph must
+    // agree; `website` would contradict the page's own `@type`.
+    openGraphType: "article",
   });
 }
 
