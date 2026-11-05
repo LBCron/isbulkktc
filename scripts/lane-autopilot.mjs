@@ -359,8 +359,12 @@ async function decide(name, ctx) {
     if (state_ === 'CLEAN') return { action: 'wait', reason: `PR #${pr.number} ready to merge` };
     return { action: 'wait', reason: `PR #${pr.number} in flight (${state_})` };
   }
-  if (branchExists) {
-    return { action: 'wait', reason: `branch ${lane.branch} exists, no PR yet` };
+  // A branch alone does NOT mean work is in flight. Squash-merge rewrites the
+  // SHA, so a merged branch still looks "ahead of main" forever, and treating
+  // it as in-flight deadlocked the lane. The branch only counts when the lane
+  // is actually working or a PR is open (handled above).
+  if (branchExists && ctx.working.has(name)) {
+    return { action: 'wait', reason: `branch ${lane.branch} in use, task running` };
   }
   if (state.attempts >= MAX_ATTEMPTS) {
     return {
@@ -372,9 +376,11 @@ async function decide(name, ctx) {
     action: 'spawn',
     reason: handoff
       ? `handoff #${handoff.number} to fix`
-      : state.attempts === 0
-        ? 'no work yet'
-        : `retry ${state.attempts + 1}/${MAX_ATTEMPTS}`,
+      : branchExists
+        ? 'stale branch, restarting'
+        : state.attempts === 0
+          ? 'no work yet'
+          : `retry ${state.attempts + 1}/${MAX_ATTEMPTS}`,
     context: { previousError: state.lastError },
   };
 }
@@ -425,7 +431,7 @@ async function main() {
       .map((t) => String(t.request?.title ?? '').replace(/^LANE-/, '')),
   );
 
-  const ctx = { prs, blocked, handoffs, branches, state };
+  const ctx = { prs, blocked, handoffs, branches, state, working };
   const decisions = [];
   let running = sandboxes.length;
 
