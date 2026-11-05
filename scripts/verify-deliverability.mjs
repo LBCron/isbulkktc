@@ -115,8 +115,28 @@ export function countSpfDnsLookups(record) {
  * routing, in this repo) does not, which is what distinguishes the two.
  */
 export function spfAuthorisesSender(record) {
-  if (/(?:^|\s)(?:include|ip4|ip6)[:=]?[^\s]*amazonses\.com/i.test(record)) return true;
+  if (spfIncludesAmazonses(record)) return true;
   return spfIpEntries(record).length > 0;
+}
+
+/**
+ * True when the record carries the exact `include:amazonses.com` mechanism.
+ *
+ * The match must be the whole mechanism, not a substring of it: an unanchored
+ * `…amazonses\.com` matched `include:notamazonses.com` and
+ * `include:amazonses.com.evil.example`, so a record that authorises an unrelated
+ * host read as "authorised". A trailing dot is the same name in DNS.
+ *
+ * Only the bare include and its `+` equivalent count. `-include` means the
+ * sender is explicitly rejected and `~`/`?` mean soft-fail/neutral — none of
+ * those authorise a sender, so they must not read as PASS either.
+ */
+function spfIncludesAmazonses(record) {
+  for (const token of String(record).trim().split(/\s+/)) {
+    const term = token.replace(/^\+/, "").toLowerCase();
+    if (term === "include:amazonses.com" || term === "include:amazonses.com.") return true;
+  }
+  return false;
 }
 
 /** `ip4:1.2.3.4` / `ip6:…` entries of an SPF record, with CIDR masks stripped. */
@@ -372,6 +392,7 @@ async function checkBlocklists() {
   const listed = [];
   const clean = [];
   const unqueryable = [];
+  const unchecked = [];
 
   for (const list of BLOCKLISTS) {
     const names =
@@ -384,7 +405,9 @@ async function checkBlocklists() {
       continue;
     }
     if (names.length === 0) {
-      clean.push(`${list.zone} (no IP to check)`);
+      // No sending IP to query. Reporting this as `clean` would read as "checked
+      // and not listed", which is not what happened — it was never checked.
+      unchecked.push(list.zone);
       continue;
     }
     for (const name of names) {
@@ -404,15 +427,19 @@ async function checkBlocklists() {
     record(
       "Blocklists",
       "skip",
-      `no list could be queried (${unqueryable.join(", ")}) — a public or ` +
-        `filtering resolver is refused by Spamhaus; this is not a clean result`,
+      `no list could be queried (${[...unqueryable, ...unchecked].join(", ")}) — a ` +
+        `public or filtering resolver is refused by Spamhaus; this is not a clean result`,
     );
     return;
   }
-  const suffix = unqueryable.length > 0 ? `; unqueryable: ${unqueryable.join(", ")}` : "";
+  const caveats = [
+    unqueryable.length > 0 ? `unqueryable: ${unqueryable.join(", ")}` : "",
+    unchecked.length > 0 ? `not queried (no sending IP): ${unchecked.join(", ")}` : "",
+  ].filter(Boolean);
+  const suffix = caveats.length > 0 ? `; ${caveats.join("; ")}` : "";
   record(
     "Blocklists",
-    unqueryable.length > 0 ? "warn" : "pass",
+    caveats.length > 0 ? "warn" : "pass",
     `not listed on ${[...new Set(clean)].join(", ")}${suffix}`,
   );
 }
