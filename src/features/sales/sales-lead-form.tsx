@@ -65,6 +65,10 @@ export function SalesLeadForm({ plan }: { plan?: string }) {
           id="sales-phone"
           autoComplete="tel"
           maxLength={32}
+          // The field is optional, but a typed value must reach the column's
+          // four-character floor; the browser blocks a shorter one and the
+          // schema rejects it server-side.
+          minLength={4}
           name="phone"
           type="tel"
         />

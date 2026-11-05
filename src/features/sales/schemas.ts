@@ -6,7 +6,18 @@ export const salesLeadSchema = z.object({
   contactName: z.string().trim().min(1).max(80).optional().or(z.literal("")),
   // Required: the receipt is addressed to this address, and the team replies to it.
   email: z.string().trim().toLowerCase().pipe(z.email()),
-  phone: z.string().trim().max(32).optional().or(z.literal("")),
+  // Optional, but a value that is present must clear the column's floor:
+  // `sales_leads.phone` requires 4–32 characters, so the RPC drops anything
+  // shorter. Rejecting it here tells the visitor why instead of silently
+  // discarding the number they typed.
+  phone: z
+    .string()
+    .trim()
+    .max(32)
+    .refine((value) => value.length === 0 || value.length >= 4, {
+      message: "A phone number must be at least 4 characters.",
+    })
+    .optional(),
   plan: z.string().trim().max(80).optional().or(z.literal("")),
   durationDays: z
     .union([z.literal("1"), z.literal("7"), z.literal("30"), z.literal("")])
