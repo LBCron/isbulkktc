@@ -422,3 +422,80 @@ Bakılmayan dosya: yok.
 - `src/content/ai-visibility/structured-data.ts` `buildDistrictPageStructuredData`
   içindeki `name: \`${districtName} İş İlanları\`` Türkçe eki taşıyor; yerelleşmiş
   sayfada JSON-LD adı görünen `<h1>` ile uyuşmuyor → LANE-GEO.
+
+---
+
+## Micro-denetim turu 5 — JSON-LD etiket tutarlılığı (#126)
+
+Beşinci tur. `main` yine ilerlemişti (#147, #148 merge edilmiş); önceki turların
+kapattığını tekrar yazmadım. Bu turda **JSON-LD'nin görünen içerikle uyuşması**
+boyutuna odaklandım (AUDIT.md "JSON-LD görünen içerikle uyuşuyor mu").
+
+### Envanter (`git ls-files`)
+
+| Grup | N | Bakıldı |
+|---|---|---|
+| `src/lib/seo.ts`, `src/app/sitemap.ts`, `src/app/robots.ts` | 3 | 3/3 |
+| `src/app/[locale]/**` route/layout | 37 | 37/37 |
+| **Toplam** | **40** | **40/40** |
+
+Bakılmayan dosya yok.
+
+### Bulgular
+
+| # | Dosya:satır | Boyut | Gözlenen | Beklenen | Etki | Durum |
+|---|---|---|---|---|---|---|
+| 1 | `src/app/[locale]/(public)/is-ilanlari/[district]/page.tsx:86-87` | JSON-LD / görünür içerik | `BreadcrumbList` etiketleri `HomeJobSearch` **hero sloganlarıydı**: `homeLabel` = `"KARİYERİNİZ İÇİN AÇIK İLANLAR"`, `jobsLabel` = `"Fırsatları hesap açmadan keşfedin."` | breadcrumb'ın yürüdüğü sayfaların adları: home = `İşBul KKTC`, jobs = `Nav.jobs` | Google/AI, ana sayfayı ve `/jobs`'u sloganla adlandırıyordu; **36 sayfa** (6 ilçe × 6 dil) | **Düzeltildi** |
+| 2 | `src/content/ai-visibility/structured-data.ts:255` | JSON-LD / dil tutarlılığı | `name: \`${districtName} İş İlanları\`` — `districtName` yerelleşiyor ama `"İş İlanları"` sabit → `de`/`en`/`ru` sayfada **iki dilli** ad (`'Kyrenia İş İlanları'`) | görünen `<h1>`/başlıkla aynı dil | 5 dil × 6 ilçe = 30 sayfada yapısal veri dili karışık | **Devredildi** → #152 (LANE-GEO; üretici modül onun) |
+| 3 | `src/content/ai-visibility/structured-data.ts:208` | JSON-LD / dil tutarlılığı | Rehber/blog breadcrumb bölüm adı sabit `"Rehber"` → `/de/rehber/...` sayfasında 2. adım `'Rehber'` | bölüm adı da yerelleşmeli (`Guides.metaTitle`/`Nav`) | 2 içerik ailesi × 6 dil | **Devredildi** → #152 (LANE-GEO) |
+| 4 | `src/app/[locale]/(public)/is-turleri/[type]/page.tsx` | JSON-LD | Kardeş rota `is-ilanlari/[district]` `CollectionPage`+`BreadcrumbList` yayınlıyor; `is-turleri/[type]` **hiç JSON-LD yayınlamıyor** | tür eşdeğeri | 36 indekslenebilir iniş sayfası yapısal verisiz | **Devredildi** → #152 (LANE-GEO) |
+| 5 | `src/messages/**` `Legal` | SEO meta | 3 rota × 6 dil aynı Türkçe meta+gövde | dile özgü | 18 sayfa kopya | **#141** (açık) |
+
+### Kanıt (üretim standalone, öncesi → sonrası)
+
+```
+# Bulgu 1 — 6 dilin tamamı
+/en/is-ilanlari/girne  önce : 'OPEN ROLES FOR YOUR NEXT STEP' | 'Explore opportunities without signing up.' | 'Kyrenia'
+                       sonra: 'İşBul KKTC' | 'Jobs' | 'Kyrenia'
+/de/is-ilanlari/lefkosa sonra: 'İşBul KKTC' | 'Stellenangebote' | 'Nikosia'
+/ru/is-ilanlari/girne   sonra: 'İşBul KKTC' | 'Вакансии' | 'Кирения'
+
+# Bulgu 2 (devredildi) — hâlâ iki dilli
+/de/is-ilanlari/girne  CollectionPage.name = 'Kyrenia İş İlanları'
+/ru/is-ilanlari/girne  CollectionPage.name = 'Кирения İş İlanları'
+```
+
+### Doğrulanan ve sağlam bulunanlar (bu tur)
+
+- **Meta:** legal (#141) dışında 102 rota×dil kombinasyonunda `title`/`description`
+  benzersiz; auth sayfaları layout varsayılanını miras alıyor ama `noindex`.
+- **Canonical:** 84/84 indekslenebilir rota self-canonical; `og:url` **her yerde**
+  canonical'a eşit (0 sapma).
+- **hreflang:** her rota × dilde 7 hedef (6 dil + `x-default`), küme birebir aynı.
+- **Sitemap:** XML geçerli; 186 `<loc>`, 0 ölü, 0 kopya; `changefreq`/`priority`
+  aralıkta; her girdide `xhtml:link` alternates.
+- **Link bütünlüğü:** 324 sayfa, 544 iç hedef → **0 404** (yalnız beklenen 308
+  `as-needed` + 307 auth kapısı). 570 dış linkin hepsi `target="_blank"` +
+  `noopener noreferrer`.
+- **JSON-LD:** 102/102 blok geçerli JSON; `FAQPage` görünen sorularla eşleşiyor;
+  `og:type` rehber/blog'da `article`.
+- **IndexNow:** `public/isbulkktcada1d9ce6917a3363df4ff8fccc7629a.txt` içeriği
+  dosya adıyla birebir.
+
+### Kapılar
+
+`lint ✅` `typecheck ✅` `check:frontend-source ✅` `test:unit ✅ (408/408)`
+`test:security ✅ (22/22)` `build ✅`
+
+### Sahibin yapması gerekenler
+
+- **#152** — JSON-LD üreticisi: `is-turleri` mount'u + district/rehber dil
+  karışması (LANE-GEO).
+- **#141** — legal sayfaların çevirisi (LANE-URUN + LANE-SUPABASE).
+- **#144** — dil değiştirici kök nedeni (LANE-TASARIM).
+
+### Sonraki lane için notlar
+
+- Bulgu 1 birim testi **eklenmedi**: `tests/**` LANE-QA sahipliğinde. QA turu
+  breadcrumb etiketlerinin `Nav.jobs`/`SITE_NAME` olduğunu doğrulayabilir
+  (yöntem: `curl … | grep ld+json` → `BreadcrumbList.itemListElement`).
