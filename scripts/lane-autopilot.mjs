@@ -187,13 +187,19 @@ function mergeReadyPullRequests(prs, dryRun) {
       stalled.push({ number: pr.number, reason: 'touches the CI gate' });
       continue;
     }
-    if (pr.mergeStateStatus !== 'CLEAN') {
-      stalled.push({ number: pr.number, reason: `state ${pr.mergeStateStatus}` });
+    // Only a real conflict stops a merge here. Do NOT require mergeStateStatus
+    // === 'CLEAN': that flag goes UNSTABLE when any *non-required* check fails,
+    // and Vercel is not required — its build-rate limit (an external quota)
+    // turned every PR UNSTABLE and left them all unmerged forever. GitHub's
+    // auto-merge already waits for the required checks, so the required gate is
+    // enforced without this filter second-guessing it.
+    if (pr.mergeable === 'CONFLICTING') {
+      stalled.push({ number: pr.number, reason: 'conflicts with main' });
       continue;
     }
     if (pr.autoMergeRequest) continue;
     if (dryRun) {
-      merged.push({ number: pr.number, action: 'would merge' });
+      merged.push({ number: pr.number, action: 'would enable auto-merge' });
       continue;
     }
     try {
