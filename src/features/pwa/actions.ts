@@ -36,14 +36,16 @@ export type SavePushSubscriptionResult =
 export async function savePushSubscription(
   payload: unknown,
 ): Promise<SavePushSubscriptionResult> {
-  const parsed = subscriptionSchema.safeParse(payload);
-  if (!parsed.success) return { ok: false, reason: "invalid" };
-
+  // Authenticate before validating, so an anonymous caller learns nothing about
+  // the accepted endpoint shape (the route has the same ordering).
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, reason: "unauthenticated" };
+
+  const parsed = subscriptionSchema.safeParse(payload);
+  if (!parsed.success) return { ok: false, reason: "invalid" };
 
   // Device metadata is taken from the request, never from the caller, so a
   // client cannot forge the string the account's device list shows.

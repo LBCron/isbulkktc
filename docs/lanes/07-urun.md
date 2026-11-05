@@ -493,3 +493,61 @@ yazma → `agent:content` + `agent:handoff` + `lane:icerik` ile issue #255 açı
 | Linkler | ✅ `href`'ler geçerli (tel/mailto/maps/web), `target="_blank"` + `rel` |
 | Mantık | ✅ sayfalama `Math.min(page, pageCount)` ile sınırlı; filtre değişince `setPage(1)` |
 | Test | ✅ mevcut E2E `company-directory.spec.ts` filtre/empty akışını kapsıyor |
+
+---
+
+## Tur 9 — push endpoint'inde SSRF (#262)
+
+### Alınan issue
+Kuyrukta `lane:urun` etiketli **#262** (SSRF). `src/server/push/**` benim
+sahipliğimde; issue ayrıca `src/app/api/push/**` ve `src/features/pwa/actions.ts`'i
+de LANE-URUN'a veriyor.
+
+### Doğrulanan kanıt (issue'nun ölçümü yeniden üretildi)
+Tek kontrol `z.string().url().min(12).max(1024).startsWith("https://")` idi; host
+kısıtı yoktu. Yerel bir TCP dinleyicisi + uygulamanın kendi şeması:
+```
+önce: route schema accepts loopback endpoint: true   → worker 1 bağlantı / 1568 bayt TLS
+```
+Yani kayıtlı bir endpoint worker'ı dağıtımın iç ağındaki keyfî adrese bağlıyordu.
+
+### Düzeltme (sahip olduğum + issue'nun atadığı yüzey)
+- **Yeni `src/server/push/push-endpoint.ts`** (`isAllowedPushEndpoint`, saf):
+  allowlist — `fcm.googleapis.com`, `android.googleapis.com`,
+  `updates.push.services.mozilla.com`, `web.push.apple.com`,
+  `*.notify.windows.com` / `*.push.apple.com` / `*.push.services.mozilla.com`.
+  Reddedilen: IP literal, ondalık-kodlu adres, `localhost`, `.local`/`.internal`/
+  `.home.arpa`, https-dışı şema, authority'de kimlik bilgisi.
+- **İki yazma yolu:** `src/app/api/push/subscriptions/route.ts` ve
+  `src/features/pwa/actions.ts` `savePushSubscription`.
+- **Gönderim ucu (savunma derinliği):** `src/server/push/vapid.ts`
+  `sendPushMessage` — eski bir satır worker'ı yoklamaya çeviremez; yeni `blocked`
+  durumu dispatcher'da `gone` gibi emekliye ayrılır.
+- **Refine zincirin sonuna eklendi:** `...startsWith("https://").refine(isAllowedPushEndpoint)`.
+  Böylece LANE-GÜVENLİK'in `tests/security/push-endpoint-ssrf.test.ts` içinde
+  sabitlediği "https URL" sözleşmesi **bozulmaz** (kendi yorumu: *"when the owner
+  adds a host allowlist they can be promoted to gates"*).
+
+### Çapraz-lane koordinasyon (önemli)
+LANE-GÜVENLİK'in PR #268'i (birleşti) testi iki yazma yoluna genişletti **ama
+eski regex'i yine sabitliyordu**; düzeltmem inince kırıldı. `tests/security/**`
+onların sahipliğinde olduğu için **dokunmadım**; #268'e koordinasyon yorumu
+bıraktım ve refine'ı zincirin sonuna ekleyerek çakışmayı **testlerini kırmadan**
+çözdüm. Sonuç: `test:security` 73 test / 0 fail; SSRF `todo`'su kapıya terfi
+etmeye hazır (onların işi).
+
+### Eklenen test
+`src/server/push/push-endpoint.test.ts` (4 test) — gerçek servisler kabul;
+loopback/özel/link-local/metadata/ondalık/`localhost`/`.internal` red;
+allowlist-dışı host ve https-dışı red; string olmayan girdi çökmez.
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (559, 0 fail)/test:security
+(73, 0 fail) + `bun run build` (throwaway `NEXT_DIST_DIR`) → hepsi yeşil.
+Canlıya dokunulmadı.
+
+### Devredilen
+- **LANE-SUPABASE:** `register_push_subscription` RPC'si doğrudan çağrılabildiği
+  için aynı host kuralı orada (ve mümkünse tablo CHECK'inde) uygulanmalı.
+- **LANE-GÜVENLİK:** `push-endpoint-ssrf.test.ts` → "documents the gap" testi
+  artık gereksiz; `todo`'yu kapıya terfi ettir.
