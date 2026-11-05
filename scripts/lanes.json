@@ -157,6 +157,19 @@
         "technical-writing",
         "code-review"
       ]
+    },
+    "teslimat": {
+      "brief": "14-teslimat",
+      "branch": "lane/teslimat",
+      "wave": 0,
+      "label": "agent:infra",
+      "laneLabel": "lane:teslimat",
+      "scope": "merge kuyruğu, deploy sağlığı, yayın doğrulaması, kota bekçiliği",
+      "skills": [
+        "github-actions",
+        "code-review",
+        "qa-changes"
+      ]
     }
   },
   "maxReusesPerConversation": 2
