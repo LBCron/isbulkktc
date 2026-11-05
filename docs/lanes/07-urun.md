@@ -246,3 +246,78 @@ Boyut boyut tarandı; her dosya aşağıdaki tabloda bir sonuç taşır.
 ### Kapılar
 lint/typecheck/check:frontend-source/test:unit (377 → **380**)/test:security →
 hepsi yeşil. Canlıya dokunulmadı.
+
+---
+
+## Tur 5 — satış formu telefonu sessizce düşürüyordu (#135)
+
+### Alınan issue
+`gh issue list --state open --label agent:backend` → **#135** (sahibi LANE-URUN,
+`bug`). #102 hâlâ engelli (aşağıda "Devredilen" — bu kez `agent:handoff`).
+
+### Doğrulanan kanıt
+`src/features/sales/schemas.ts:9` telefonu yalnız üst sınırla doğruluyordu
+(`z.string().trim().max(32).optional().or(z.literal(""))`). Çalıştırınca:
+
+```
+salesLeadSchema.parse({ email:"a@b.com", phone:"12" })  -> ok("12")   // kabul!
+salesLeadSchema.parse({ email:"a@b.com", phone:"123" }) -> ok("123")  // kabul!
+```
+
+Ama `sales_leads.phone` CHECK'i `between 4 and 32` ister; RPC (PR #133, merge
+edildi) eşiğin altındaki değeri **null** yazıyor. Yani kullanıcı "12" yazıp
+gönderiyor, kayıt başarılı görünüyor, ama numarası sessizce kayboluyordu —
+kullanıcı hiçbir geri bildirim almıyordu.
+
+### Düzeltme (issue'nun ilk seçeneği: görünür doğrulama)
+- `src/features/sales/schemas.ts` — telefon artık girildiyse en az 4 karakter:
+  `.refine((v) => v.length === 0 || v.length >= 4)`. Boş/`undefined` geçerli
+  kalır (alan isteğe bağlı), 4–32 geçer, 33+ yine reddedilir.
+- `src/features/sales/sales-lead-form.tsx` — input'a `minLength={4}`. HTML
+  `minlength` boş değeri muaf tutar, yani isteğe bağlı alan boşken form
+  gönderilebilir; kısa değer girilirse tarayıcı gönderimi engeller ve
+  **yerelleştirilmiş** bir "en az 4 karakter" mesajı gösterir.
+- Sözleşme uyumu: kısa telefon artık lead'i **düşürmüyor**; `invalid` durumuna
+  düşüp kullanıcıya söylüyor, DB tarafı (RPC) da zaten null yazıyor.
+
+### Eklenen test
+`src/features/sales/schemas.test.ts` (4 test) — eşik altı reddi, boş/`undefined`
+kabulü, 4+ kabul + trim, üst sınır reddi. QA'nın
+`tests/unit/sales-lead-schema.test.ts`'i değişmeden geçiyor.
+
+### Fonksiyonel doğrulama (gerçek tarayıcı)
+Üretim standalone sunucusu (`NEXT_DIST_DIR=.next-urun`) ayağa kaldırılıp
+`/en/packages` gerçek Chromium ile açıldı:
+
+```
+input.minLength = 4
+phone "12"  -> valid=false, tooShort=true,  "Please lengthen this text to 4 characters or more…"
+phone "1234"-> valid=true
+phone ""    -> valid=true   (alan isteğe bağlı)
+```
+
+SSR HTML: `<input id="sales-phone" … maxLength="32" minLength="4" …>`.
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (419 → **423**)/test:security +
+`bun run build` (throwaway `NEXT_DIST_DIR`) → hepsi yeşil. Canlıya dokunulmadı
+(DB/migration yok; SQL zaten PR #133 ile inmiş).
+
+### Devredilen: #102 (`server-only` işareti) — `agent:handoff`
+Yeni devir protokolüne göre yeniden etiketlendi: `agent:blocked` kaldırıldı,
+`agent:handoff` + `lane:qa` + `lane:infra` eklendi. Gerekçe değişmedi
+(`src/server/email/**` sahipsiz; `server-only` eklemek `tsx --test` altında
+`tests/unit/unsubscribe-token.test.ts`'i düşürüyor). Düzeltme LANE-QA'nın
+testi kaynak taramasına çevirmesini ya da LANE-INFRA'nın test runner'ına
+`react-server` koşulunu eklemesini gerektirir.
+
+### Tur 5 denetim tablosu (sales dilimi)
+
+| Boyut | Sonuç |
+|---|---|
+| Doğruluk (sınır) | ⚠️ **1 bulgu** — telefon alt sınırı (düzeltildi) |
+| Yetki | ✅ anonim yazma yolu; hız sınırı Tur 2'de eklendi |
+| Durum yönetimi | ✅ `invalid`/`failed`/`submitted` gerçek; artık kısa telefon sessizce yutulmuyor |
+| Yarış / idempotency | ✅ RPC tek INSERT; `leadId` idempotency anahtarı postada |
+| Sızıntı | ✅ loglar yalnız `code` |
+| Test | ✅ yeni `schemas.test.ts` (4) + mevcut QA şeması |
