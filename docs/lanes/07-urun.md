@@ -389,3 +389,53 @@ Doğru `RESEND_API_KEY` (`re_…`) panelden girilip doğrulanmalı:
   `gh run rerun --failed` ile geçti/geçiyor.
 - **`src/server/email/**` hâlâ sahipsiz.** #102 (server-only) da bu yüzden
   handoff. Öneri: sahiplik tablosuna `src/server/email/**` için sahip tanımla.
+
+---
+
+## Tur 7 — CV tarih çıkarımı bağlamsızdı (#208)
+
+### Alınan issue
+Kuyrukta `lane:urun` + `agent:backend` etiketli **#208**: "CV'den az bilgi
+çekiliyor + tarihler yanlış kutuya işliyor (doğum yılı → iş deneyimi)".
+Sahip olduğum `src/features/candidates/**` içinde, sınırlı ve yüksek etkili.
+#191 (marka paleti) alınmadı: sahiplik çelişkisi + çok lane'li (aşağıda).
+
+### Doğrulanan kanıt (issue'nun ölçümü yeniden üretildi)
+`resume-parser.ts` içindeki `dateToken` gün/ay opsiyonel olduğu için **çıplak
+yıl** her bağlamda tarih sayılıyordu:
+```
+"1995-2000 doğumlu"      -> 1995 - 2000   (iş deneyimi oldu)
+"Adres: Lefkoşa - 2019"  -> 2019
+"Date of birth: 1990"    -> 1990
+```
+
+### Düzeltme (Hata 1 — sınırlı tutuldu)
+- **Kişisel veri bağlam filtresi** (`isPersonalDataLine`): `doğum, adres,
+  telefon, kimlik, pasaport, nüfus` gövde; `age, birth, born, dob, address,
+  phone, tel, gsm, tc, tcno, yaş, iban` tam kelime. `extractDateRange` ve
+  `extractDates` bu satırları atlar.
+- **Aralık mantığı** (`isValidYearRange`): iki ucu yıl olan aralık ileri ve
+  ≤ 60 yıl olmalı; `2023 - 2019` / `1900 - 1999` tümden reddedilir.
+- `doğu` (east) bilinçle gövde değil → `Doğu Akdeniz Üniversitesi` eğitimi
+  hâlâ ayrışıyor; İngilizce kelimeler tam → "management" ≠ "age".
+
+### Eklenen test
+`src/features/candidates/resume-date-context.test.ts` (6 test). Mevcut
+`resume-parser` / `resume-parser-multiline` / `resume-profile-draft` (17 test)
+değişmeden geçiyor.
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (447 → **453**)/test:security →
+hepsi yeşil. Canlıya dokunulmadı.
+
+### Devredilen (#208 Hata 2 ve Hata 3)
+Kapsam artırma (10+ gerçek CV formatı, tabular/iki kolon/PDF bozulması) ve
+alan→kutu eşleme testi + profil skoru ölçümü (%100 hedefi) **LANE-QA** + daha
+geniş parser çalışması gerektiriyor; sınırlı tutmak için alınmadı. Issue açık.
+
+### Devredilen (#191 — marka paleti): sahiplik çelişkisi
+#191 `supabase/functions/_shared/email-{layout,render}.ts`'i **LANE-URUN**'a
+veriyor; ama sahiplik tablosu `supabase/**`'ı **LANE-SUPABASE**'e veriyor
+(`lane-collisions.mjs` de öyle diyor). Kural: sahip olmadığın dosyaya yazma.
+#191'e karar isteyen yorum bırakıldı; ayrıca `lane-collisions.mjs` CI'a bağlı
+değil (INFRA önerisi). LANE-URUN o iki dosyaya **yazmadı**.
