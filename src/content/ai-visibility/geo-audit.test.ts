@@ -27,6 +27,11 @@ import {
   servedDistricts,
   regionNames,
 } from "@/content/ai-visibility/site";
+import {
+  KKTC_COUNTRY_POSTAL_CODE,
+  districtPostalCode,
+  jobLocationPostalAddress,
+} from "@/content/ai-visibility/postal-codes";
 import { jobTypeKeys } from "@/features/jobs/job-type-slugs";
 import { routing, type AppLocale } from "@/i18n/routing";
 
@@ -340,15 +345,16 @@ test("the country code is declared once and used everywhere", () => {
   // A value check alone cannot tell the shared constant from a re-typed
   // literal — both render "CY". Reading the producers is what actually pins
   // single-source ownership, so a second literal fails even though the output
-  // is unchanged. `job-posting-structured-data.ts` is `server-only` (pulls in
-  // the app URL) and cannot be executed here, so it is source-checked only.
+  // is unchanged. The JobPosting address now lives in `postal-codes.ts` (moved
+  // out of the `server-only` producer so it is testable), so that module is the
+  // one that must import the shared code.
   const producers = {
     "src/content/ai-visibility/structured-data.ts": readFileSync(
       path.join(REPO_ROOT, "src/content/ai-visibility/structured-data.ts"),
       "utf8",
     ),
-    "src/features/jobs/job-posting-structured-data.ts": readFileSync(
-      path.join(REPO_ROOT, "src/features/jobs/job-posting-structured-data.ts"),
+    "src/content/ai-visibility/postal-codes.ts": readFileSync(
+      path.join(REPO_ROOT, "src/content/ai-visibility/postal-codes.ts"),
       "utf8",
     ),
   };
@@ -367,6 +373,137 @@ test("the country code is declared once and used everywhere", () => {
       `${file} must import COUNTRY_CODE from the shared site data`,
     );
   }
+
+  // The `server-only` producer must not carry the code either: it delegates the
+  // whole address to the shared builder, so a literal here would be a second
+  // source that the graph above never sees.
+  const postingSource = readFileSync(
+    path.join(REPO_ROOT, "src/features/jobs/job-posting-structured-data.ts"),
+    "utf8",
+  );
+  assert.ok(
+    !/["']CY["']/.test(postingSource),
+    "the JobPosting producer re-types the country code; delegate to jobLocationPostalAddress",
+  );
+  assert.ok(
+    !/const AREA_NAME = ["']/.test(postingSource),
+    "the JobPosting producer re-types the area name; derive it from regionNames",
+  );
+});
+
+test("the postal code comes from the official KKTC table, never invented", () => {
+  // #417 flagged a missing `postalCode`. KKTC does publish one — but only from
+  // its own authority, so every code the site emits must be traceable to that
+  // table and to no other source. A guessed code would point Google Jobs at a
+  // location the postal service does not recognise.
+  assert.equal(KKTC_COUNTRY_POSTAL_CODE, "99000");
+
+  // District centres: the values read from the published table. This is the
+  // whole table, so a wrong or missing entry fails here.
+  const expected: Record<string, string> = {
+    Lefkoşa: "99010",
+    Mağusa: "99450",
+    Girne: "99300",
+    Güzelyurt: "99700",
+    İskele: "99850",
+    Lefke: "99770",
+  };
+  for (const [district, code] of Object.entries(expected)) {
+    assert.equal(
+      districtPostalCode(district),
+      code,
+      `${district} must carry its official KKTC code`,
+    );
+  }
+  // Every served district resolves; an untabulated district must not fall
+  // through to a code belonging to another district.
+  for (const district of servedDistricts) {
+    assert.ok(
+      districtPostalCode(district.tr),
+      `${district.tr} has no postal code`,
+    );
+  }
+  assert.equal(districtPostalCode(null), null);
+  assert.equal(districtPostalCode("Bilinmeyen"), null);
+  // A blank district is the same absence as `null`: a whitespace string is not a
+  // district name, so it must not resolve to a code — and a padded real name must
+  // still resolve, or a stored `" Girne "` would silently lose its code.
+  assert.equal(districtPostalCode(""), null);
+  assert.equal(districtPostalCode("   "), null);
+  assert.equal(districtPostalCode(" Girne "), "99300");
+
+  // The organization graph must NOT carry a postal code: the operator publishes
+  // "Alsancak", which the official table splits across 99350 (mahalle) and 99360
+  // (köy), and nothing selects one. A code there would be invented.
+  assert.ok(
+    !("postalCode" in buildPostalAddress(BASE_URL)),
+    "the organization address must not guess a postal code for Alsancak",
+  );
+});
+
+test("a JobPosting address names the district and its own code, never a street", () => {
+  // #417 also flagged a missing `streetAddress` and `baseSalary`. Both are
+  // *recommended*, not required, and the site holds neither datum: a listing is
+  // recorded at district granularity with no street and no salary. Google's
+  // policy forbids "false location data", so the honest shape omits them rather
+  // than inventing a value. This asserts the exact keys, so re-adding a guessed
+  // street or a placeholder salary fails here.
+  for (const district of servedDistricts) {
+    const address = jobLocationPostalAddress(district.tr);
+    assert.deepEqual(
+      Object.keys(address).sort(),
+      ["@type", "addressCountry", "addressLocality", "addressRegion", "postalCode"],
+      `${district.tr} address must carry exactly locality/region/code/country`,
+    );
+    assert.equal(address.addressLocality, district.tr);
+    assert.equal(address.addressRegion, district.tr);
+    assert.equal(address.postalCode, districtPostalCode(district.tr));
+    assert.equal(address.addressCountry, COUNTRY_CODE);
+    assert.ok(
+      !("streetAddress" in address),
+      `${district.tr} must not invent a street address`,
+    );
+  }
+
+  // A districtless listing falls back to the country consistently: locality,
+  // region and code all describe the country, never a country name with a
+  // district's code.
+  const country = jobLocationPostalAddress(null);
+  assert.equal(country.addressLocality, regionNames.tr);
+  assert.equal(country.addressRegion, regionNames.tr);
+  assert.equal(country.postalCode, KKTC_COUNTRY_POSTAL_CODE);
+  assert.equal(country.addressCountry, COUNTRY_CODE);
+
+  // A blank district is the same absence as `null`: an empty `addressLocality`
+  // beside a country-level code would be a self-contradicting address.
+  for (const blank of ["", "   "]) {
+    assert.deepEqual(
+      jobLocationPostalAddress(blank),
+      jobLocationPostalAddress(null),
+      `a blank district (${JSON.stringify(blank)}) must fall back to the country`,
+    );
+  }
+
+  // The `server-only` producer cannot be executed here, so it is source-checked:
+  // it must delegate to the shared builder and must not carry a salary, which the
+  // platform has no field for.
+  const postingSource = readFileSync(
+    path.join(REPO_ROOT, "src/features/jobs/job-posting-structured-data.ts"),
+    "utf8",
+  );
+  assert.match(
+    postingSource,
+    /import \{[^}]*jobLocationPostalAddress[^}]*\} from "@\/content\/ai-visibility\/postal-codes"/,
+    "the JobPosting producer must import the shared address builder",
+  );
+  assert.ok(
+    !/["']baseSalary["']\s*:/.test(postingSource),
+    "the JobPosting producer must not emit a baseSalary the data cannot back",
+  );
+  assert.ok(
+    !/["']streetAddress["']\s*:/.test(postingSource),
+    "the JobPosting producer must not emit a streetAddress the data cannot back",
+  );
 });
 
 test("the brief describes the structured data the site actually emits", () => {
@@ -404,6 +541,30 @@ test("the brief describes the structured data the site actually emits", () => {
     regionNames.tr.length > 0,
     "the region name is the area the organization graph names",
   );
+});
+
+test("the brief publishes the district postal codes an answer engine may quote", () => {
+  // A model asked "posta kodu Girne" should be able to answer from the site's
+  // own machine-readable brief instead of guessing or scraping a third party.
+  const brief = buildLlmsBrief(BASE_URL);
+  const full = buildLlmsFullBrief(BASE_URL);
+  const postalLine = (document: string) =>
+    document
+      .split("\n")
+      .find((line) => line.startsWith("- İlçe posta kodları:")) ?? "";
+
+  for (const district of servedDistricts) {
+    const code = districtPostalCode(district.tr);
+    assert.ok(code, `${district.tr} has no postal code to publish`);
+    assert.ok(
+      postalLine(brief).includes(`${district.tr} ${code}`),
+      `the short brief omits the ${district.tr} postal code`,
+    );
+    assert.ok(
+      postalLine(full).includes(`${district.tr} ${code}`),
+      `the full brief omits the ${district.tr} postal code`,
+    );
+  }
 });
 
 test("the brand name is not re-typed in any producer", () => {

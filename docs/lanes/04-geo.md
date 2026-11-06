@@ -677,3 +677,47 @@ Okunan ama yazılmayan (sahiplik): `src/messages/**` (LANE-İÇERİK),
 `lint` ✅ · `typecheck` ✅ · `check:frontend-source` ✅ · `test:unit` ✅ (661 test,
 +1 yeni guard) · guard kırmızı→yeşil kanıtlandı (eski metin geri konunca
 `the short brief leaks the internal phrase "provenans"` ile kırmızı).
+
+## Tur 17 (2026-11-06) — mikro-denetim: posta adresi sınır girdisi (#417)
+
+**Kapsam.** `agent:seo` etiketli açık issue'lar tarandı; `lane:geo` taşıyan
+**#417** (Search Console: JobPosting'de `streetAddress`, `postalCode`,
+`baseSalary` eksik — 3 hata) alındı. Sahip olunan dosyalar AUDIT.md boyutlarıyla
+satır satır tarandı; sınır girdileri gerçek `node` ile denendi.
+
+### Bulgular
+
+| # | Bulgu | Kanıt | Durum |
+|---|---|---|---|
+| 1 | **Boş/whitespace ilçe** adresi tutarsız üretiyordu: `""` → `addressLocality: ""` + `addressRegion: ""` + `postalCode: "99000"` (ülke kodu), yani boş bir yerelliğin yanında ülke kodu; `null` ise ülke adına düşüyordu. Aynı "yok" girdisi iki farklı adres veriyordu. | `postal-codes.ts:69-76` (eski); `node` probe: `null`→`{"addressLocality":"Kuzey Kıbrıs Türk Cumhuriyeti",…,"postalCode":"99000"}` vs `""`→`{"addressLocality":"",…,"postalCode":"99000"}` | düzeltildi |
+| 2 | `districtPostalCode(" Girne ")` kod **kaybediyordu** (haritada tam anahtar araması). DB'den boşluklu gelen bir ilçe adı sessizce ülke koduna düşerdi. | `postal-codes.ts` (eski, trim yok) | düzeltildi (trim) |
+| 3 | `baseSalary` eklenemez: platformda **maaş kolonu yok**; Google'ın kendi referansı onu "as provided by the employer (not an estimate)" diye tanımlar ve yalnız işveren sağlayabilir. Uydurma yasak. | `supabase/migrations/**` maaş kolonu yok; `developers.google.com/.../job-posting` | handoff (aşağıda) |
+| 4 | `streetAddress` eklenemez: ilan kaydında sokak yok; uydurma `streetAddress` yanlış konumu sabitler. Google'da `jobLocation.address` içinde **zorunlu olan yalnız `addressCountry`**. | `job-posting-structured-data.ts:29-45`; Google JobPosting referansı | kabul (eksik bırakıldı, doğru) |
+
+**Kök neden (1+2).** `districtPostalCode` "yok" kavramını yalnız `!district` ile
+yakalıyordu ve anahtarı trim'siz arıyordu; `jobLocationPostalAddress` da
+yerelliği ham girdiden alıyordu. Tek bir `normalizeDistrict` yardımcısı artık
+ikisini de yapıyor: `trim()` + boşu `null`'a indirge. `""`/`"   "` artık `null`
+ile **aynı** adresi üretir; `" Girne "` artık `99300`'e çözülür.
+
+### Doğrulananlar (bulgu yok)
+
+Posta kodları (Lefkoşa 99010, Mağusa 99450, Girne 99300, Güzelyurt 99700, İskele
+99850, Lefke 99770; ülke 99000) resmî KKTC posta tablosuna karşı doğrulandı
+(md5 `c2f9e86093a381e9db4782498581c203`). `COUNTRY_CODE` tek bildirim; org grafiği
+posta kodu taşımıyor (Alsancak 99350/99360 çatalı → uydurma olurdu); `JsonLd`
+`<` kaçışı; brief'teki ilçe posta satırı ve `llms-full` aynası testli; district
+enum'u (`northernCyprusDistrictValues`) ile RPC değerleri birebir; `baseSalary`
+için kaynak veri yok → eklenmedi.
+
+### Kapılar
+
+`lint` ✅ · `typecheck` ✅ · `check:frontend-source` ✅ (41 token) · `test:unit` ✅
+**732 test** (730 pass, 2 todo), +2 yeni guard (boş ilçe → ülke adresi;
+`" Girne "` → 99300). Guard'lar düzeltme öncesi kırmızıydı.
+
+### Sahibin / diğer lane'ler
+
+- **#417 `baseSalary`**: kaynak veri yok; ancak işveren ilan formuna maaş alanı
+  eklenirse JobPosting'e `baseSalary` bağlanabilir. Bu **LANE-URUN** (ilan formu)
+  + **LANE-SUPABASE** (kolon) işidir → handoff issue açıldı.

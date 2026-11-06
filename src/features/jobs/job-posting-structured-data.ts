@@ -1,5 +1,6 @@
 import { toJobDescriptionHtml } from "@/content/ai-visibility/job-description-html";
-import { COUNTRY_CODE, regionNames, SITE_NAME } from "@/content/ai-visibility/site";
+import { jobLocationPostalAddress } from "@/content/ai-visibility/postal-codes";
+import { regionNames, SITE_NAME } from "@/content/ai-visibility/site";
 import { routing } from "@/i18n/routing";
 import { getLocalizedPageUrl } from "@/lib/seo";
 import type { PublicJobListing } from "@/server/dal/jobs";
@@ -25,14 +26,20 @@ const REMOTE_WORKPLACE_MODE = "remote";
 // data so this graph cannot disagree with the organization graph.
 const AREA_NAME = regionNames.tr;
 
-function buildPostalAddress(district: string | null) {
-  return {
-    "@type": "PostalAddress",
-    addressLocality: district ?? AREA_NAME,
-    addressRegion: district ?? AREA_NAME,
-    addressCountry: COUNTRY_CODE,
-  };
-}
+// `streetAddress` and `baseSalary` are deliberately absent. A listing records
+// no street and no salary, and neither may be invented: Google's JobPosting
+// reference marks `baseSalary` "as provided by the employer (not an estimate)"
+// and says only employers can supply it, while a fabricated `streetAddress`
+// would pin the wrong location. Both are *recommended*, not required — only
+// `addressCountry` is required inside `jobLocation.address` — so omitting them
+// leaves the posting valid. `postalCode` IS present because the KKTC postal
+// authority publishes one per district centre; the country-level code stands in
+// when a listing names no district (its locality is then the country too, so the
+// pair stays consistent). See
+// https://developers.google.com/search/docs/appearance/structured-data/job-posting
+//
+// The shape lives in `postal-codes.ts` (a pure module) rather than here, because
+// this file is `server-only` and the address cannot be unit-tested through it.
 
 /**
  * Builds the schema.org JobPosting graph for a public listing so Google Jobs and
@@ -101,7 +108,7 @@ export function buildJobPostingStructuredData({
       : {
           jobLocation: {
             "@type": "Place",
-            address: buildPostalAddress(job.district),
+            address: jobLocationPostalAddress(job.district),
           },
         }),
   };
