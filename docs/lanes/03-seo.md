@@ -1301,7 +1301,7 @@ Canlıya dokundu mu: hayır (yalnızca okuma; canlı Supabase'e yazı yok)
 Lane: LANE-SEO        Branch: lane/seo        PR: (bu PR)
 Değişen dosyalar: docs/lanes/03-seo.md
 Kontroller: lint ✅  typecheck ✅  check:frontend-source ✅
-            test:unit ✅ (624 pass, 5 belgeli todo)  test:security ✅ (79 pass, 3 todo)
+            test:unit ✅ (630 pass, 5 belgeli todo)  test:security ✅ (80 pass, 3 todo)
             build ✅ (NEXT_DIST_DIR=.next-lane-seo)  canlı standalone + üretim doğrulaması ✅
 Canlıya dokundu mu: hayır (yalnızca okuma; canlı Supabase'e yazı yok)
 ```
@@ -1370,3 +1370,86 @@ Canlıya dokundu mu: hayır (yalnızca okuma; canlı Supabase'e yazı yok)
   çeviri boşluğudur (özel adlar hariç).
 - `#309` (IndexNow anahtar seçimi) ve `#292` (script kaydı) hâlâ açık; ikisi de
   LANE-INFRA'da.
+
+---
+
+## Micro-denetim raporu — tur 16 (yeniden denetim; yeni bulgu yok)
+
+```
+Lane: LANE-SEO        Branch: lane/seo        PR: (bu PR)
+Değişen dosyalar: docs/lanes/03-seo.md
+Kontroller: lint ✅  typecheck ✅  check:frontend-source ✅
+            test:unit ✅ (630 pass, 5 belgeli todo)  test:security ✅ (80 pass, 3 todo)
+            build ✅ (NEXT_DIST_DIR=.next-lane-seo)  canlı standalone + üretim doğrulaması ✅
+Canlıya dokundu mu: hayır (yalnızca okuma; canlı Supabase'e yazı yok)
+```
+
+### Denetlenen dosyalar
+
+`git ls-files` ile LANE-SEO sahipliği: **41 dosya** — `src/lib/seo.ts`,
+`src/app/sitemap.ts`, `src/app/robots.ts`, `scripts/submit-indexnow.mjs` ve
+`src/app/[locale]/**` altındaki 37 route/layout. Hepsi tarandı; bakılmayan yok.
+
+### Bu turda doğrulanan yeni commit'ler
+
+| Commit | Ne yaptı | LANE-SEO doğrulaması |
+|---|---|---|
+| `#330` (GEO) | Üretici varsayılanlarını arayüz kataloğundan türetti (`sectionName`, `pageName`) | Mount'larım parametreyi **açıkça** geçtiği için çıktı değişmedi: `/de/rehber/...` → `Karriereratgeber`, `/de/blog/...` → `Geschäftsnachrichten`, `/de/is-ilanlari/girne` → `name: 'Jobs in Kyrenia'`. Tur 8/9'daki düzeltmeler korunuyor |
+| `#322` (VERIFY) | Doğrulayıcı araçlarda dört sinyal okuma hatası | `verify-indexing.mjs` üretimde **0 fail/warn/skip** |
+
+### Bulgular
+
+**Yeni, düzeltilebilir bir bulgu çıkmadı.** Alan bu turda tamamen temiz; kalan iki
+açık iş başka lane'lerde (aşağıda).
+
+| # | Konu | Sonuç |
+|---|---|---|
+| — | Sitemap, canonical, hreflang, robots, OG/Twitter, JSON-LD, RSS, link bütünlüğü, slug, CWV, ölü kod | **0 bulgu** (aşağıdaki kanıt) |
+| 1 | `#327` de H1 çevirisi | hâlâ açık (LANE-İÇERİK) |
+| 2 | `#309` IndexNow anahtar seçimi | `entries.find()` hâlâ iki dosyada (LANE-INFRA) |
+| 3 | `#292` `indexing:verify` script'i | `package.json`'da hâlâ yok (LANE-INFRA) |
+| 4 | `#149` 404 `<html lang/dir>` | üç deney de çözmedi (tur 12) |
+
+### Kanıt (bu tur, canlı standalone + üretim)
+
+- **Sitemap:** geçerli XML (ElementTree), 186 `<loc>`, **0 tekrar**, hepsi 200;
+  `<lastmod>` 42 kayıtta, ilçe/türde **0** (tur 9 kararı).
+- **hreflang:** 186 sayfa → **0 karşılıklılık ihlali**; sitemap `<xhtml:link>` seti
+  ile sayfanın kendi alternates seti birebir aynı.
+- **Kopya meta:** **0** (title/description/canonical/og:*/twitter:*/robots).
+- **JSON-LD:** 186 sayfa geçerli (0 parse hatası); mount'larımın etiketleri
+  (`CollectionPage.name`, `Article.headline`, breadcrumb bölüm adı) yerelleşmiş
+  kalıyor — #330 varsayılanları değiştirmedi.
+- **Link bütünlüğü:** 415 benzersiz iç hedef → 0 kırık; yetim 0; boş anchor 0.
+- **robots.txt:** `noindex` veren 7 özel rota `Disallow` **edilmiyor**; yalnız
+  `/api/` + 6 `/auth/`.
+- **RSS autodiscovery:** tüm herkese açık rotalarda var; 404'te de.
+- **404:** kendi yerelleşmiş `title`/`og:*`; tek `robots: noindex`; canonical ve
+  `og:url` **yok** (doğru); `og:type=website`.
+- **`/jobs` canonical/robots matrisi (üretim):** `/jobs` → self; `?page=2` →
+  `?page=2`; `?district=Girne` → `/jobs`; `?query=x` → `/jobs` + `noindex`;
+  `?page=1000` → **404**. Tur 10 düzeltmesi korunuyor.
+- **Üretim sitemap:** 207 `<loc>`, hepsi 200, **0 yönlendirme**, **0 tekrar**.
+- **Üretim önizleme alias'ı:** `isbulkktc-amber.vercel.app` → `x-robots-tag:
+  noindex, nofollow` (kanonik host isbulkktc.com temiz) — `next.config.ts` guard'ı
+  çalışıyor.
+- **`verify-indexing.mjs` (üretim):** `PASS robots/sitemap/single-loc/pages/indexnow`
+  → **0 failure / 0 warning / 0 skipped**.
+- **llms.txt / llms-full.txt:** 200, `text/plain`; brief'teki bağlantılar 200.
+- **Temizlik:** sahipli dosyalarda `TODO`/`FIXME` **0**, gömülü `localhost`/`http://`
+  **0**; `sitemap.ts` `revalidate = 3600`.
+
+### Düzeltilen / devredilen
+
+- **Düzeltildi:** yok (yeni bulgu çıkmadı).
+- **Devredildi:** #327 (LANE-İÇERİK), #309 + #292 (LANE-INFRA), #149, #173.
+
+### Sonraki lane için notlar
+
+- **SEO alanı tur 16 itibarıyla temiz.** Yeni iş için yeni ürün yüzeyi (yeni rota
+  veya yeni içerik ailesi) gerekir; mevcut 41 dosyada düzeltilecek bir şey kalmadı.
+- **Üretici varsayılanı değişse bile mount açıkça parametre geçiyorsa çıktı sabit
+  kalır** — #330 bunu kanıtladı. Yeni bir üretici varsayılanı değiştiğinde mount'un
+  parametreyi geçtiğini `grep` ile doğrula.
+- Açık iki INFRA işi (#309, #292) aynı dosya ailesinde; biri kapanınca diğerini de
+  kontrol et.
