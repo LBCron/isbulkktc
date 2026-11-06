@@ -1151,3 +1151,61 @@ Sonraki lane için notlar: #186 madde 1/3 → insan (Resend paneli). #377 →
 
 **Devir:** #386 açıldı (`lane:infra` + `agent:handoff`) — `src/server/email/**`
 sahiplik tablosunda sahipsiz; kod yazmadan sahiplik tanımı istendi.
+
+---
+
+### Tur 20 — rapor bloğu
+
+```
+Lane: LANE-URUN        Branch: lane/urun        PR: #411
+Görev: #367 (LANE-QA handoff) — açık bölüm başlığı altındaki kişisel-veri
+  satırı bir profil alanına sızıyordu (#208 §B6 kalıntısı)
+Değişen dosyalar: src/features/candidates/resume-parser.ts,
+  src/features/candidates/resume-parser-section-personal-data.test.ts (yeni),
+  docs/lanes/07-urun.md
+Çalıştırılan kontroller: lint ✅ / typecheck ✅ / check:frontend-source ✅ /
+  test:unit 712/712 (0 fail, 2 todo) ✅ /
+  CI: Static ✅ Database ✅ E2E 4/4 ✅ "Quality, database and E2E" ✅
+Canlıya dokundu mu: hayır (saf fonksiyon; DB/secret/migration yok)
+Sahibin yapması gerekenler: PR #411'i gözden geçirip merge et.
+Sonraki lane için notlar: #413 açıldı (lane:qa + agent:handoff) —
+  tests/unit/resume-date-context.test.ts içindeki iki #367 todo marker'ı artık
+  ölü bekçi (gövdesi geçiyor, yeşile dönemez); LANE-QA düşürsün.
+```
+
+**Bulgu (kök neden).** `sectionLines` içindeki `activeSection` dalı gelen satırı
+`isPersonalDataLine`'dan geçirmeden bölüme ekliyordu; alan ayrıştırıcı satırı
+`description`/`institution`/`name`/`skills` olarak yazıyor, `mergeResumeDraft` da
+profili dolduruyordu. Etiketsiz yol #343'te kapanmıştı, açık-bölüm yolu
+kapanmamıştı.
+
+**Neden birebir `isPersonalDataLine` değil.** Bölüm gövdesine o filtreyi
+uygulamak **yanlış pozitif** üretiyor: çok satırlı kayıtta unvan kendi
+satırındadır (`Doğum Kliniği Hemşiresi`) ve unvan satırı etiketsiz bir detayla
+aynı şekle sahiptir. Bu yüzden `isSectionPersonalData` **yalnız pozitif kanıtla**
+atar: token-only etiket, kendi yılını taşıyan satır, ya da iletişim değeri
+(`isContactLine`). Kelimeyi yalnızca *içeren* çıplak unvan korunur.
+
+**Yan bulgular (aynı sözleşme, tarama sırasında çıktı).**
+
+| # | Bulgu | Düzeltme |
+|---|---|---|
+| 1 | `isPersonalDataToken` ASCII sözlüğü tr-TR küçük harfle karşılaştırıyordu → `IBAN` → `ıban`, I harfli her ASCII token sızıyordu | sözlük karşılaştırması ASCII-katlamalı yapıldı |
+| 2 | Bölüm yolunda gevşek yolun sahip olduğu `isContactLine` koruması yoktu → `Cep: 0533 123 45 67` bir alana ulaşıyordu | bölüm yoluna `isContactLine` eklendi |
+
+**Doğrulama (uçtan uca, gerçek yükleme yolu).** `extractResumeFile` →
+`mergeResumeDraft`: `main`'de `experience[0].description = "Telefon: 0533 123 45
+67"` ve `education[0].institution = "Doğum Tarihi: 03/1995"`; düzeltmeyle her
+ikisi de hiçbir alana ulaşmıyor, tüm gerçek kayıtlar korunuyor. 7056 vakalık
+diferansiyel fuzz (`main` vs fix): alan **ekleyen** 0 vaka, kaybolan
+gerçek-içerik kaydı **0**. Regresyon testi non-vacuous (main'de 4/6 kırmızı).
+
+**Devir:** #413 açıldı (`lane:qa` + `agent:handoff`) — iki #367 `todo` marker'ı
+artık ölü bekçi; `tests/**` LANE-QA sahipli olduğu için dokunulmadı.
+
+**Ders.** Bir filtreyi "aynı görünen" başka bir yola kopyalamak yetmez: iki yolun
+**yanlış-pozitif sözleşmesi** farklı olabilir. Gövde satırında unvan ile detay
+ayırt edilemez; ayrımı yapan şey satırın **detayı adlandırıp adlandırmadığıdır**.
+Önce filtreyi olduğu gibi uygulayıp fark testini koşturmak, veri kaybını
+(gizli) sızıntıyla takas ediyordu — diferansiyel fuzz bunu yakaladı.
+
