@@ -44,8 +44,13 @@ export function kickoff(name, lane, context = {}) {
     'Kurulumdan sonra bağımlılıkları kur: `bun install --frozen-lockfile`.',
     // A lane with no bounded task stops early (the first wave proved it: geo
     // spent 1.4M tokens and produced nothing). Point it at its labelled issues.
+    //
+    // Query the precise `lane:<name>` label, not the shared broad one: `qa`,
+    // `guvenlik` and `verify` all carry `agent:test`, so a broad query hands the
+    // same issue to several lanes and they duplicate the work. `hasLabelledWork`
+    // already matches precisely first; the prompt must agree with that gate.
     'SOMUT İŞ: önce sana atanmış açık issue var mı bak: ' +
-      `\`gh issue list --state open --label ${lane.label}\`. Varsa onu al ` +
+      `\`gh issue list --state open --label ${lane.laneLabel ?? lane.label}\`. Varsa onu al ` +
       '(içindeki kanıtı doğrula, düzelt, test et). Yoksa kendi brief\'indeki ' +
       'hedeflerden en yüksek etkili olanı seç ve sınırlı tut.',
     // The audit protocol turns "find one bug" into "examine every file". The
@@ -57,6 +62,15 @@ export function kickoff(name, lane, context = {}) {
       'gözlenen, beklenen, etki) ve PR gövdesine tablo hâlinde yaz. Atladığın ' +
       'dosya varsa "bakılmadı" diye işaretle — sessizce geçme. Tek bir bug ' +
       'düzeltip durmak yeterli değil; alanı tara.',
+    // Parallel lanes push while `main` moves. A PR whose head conflicts with
+    // main gets **no CI run at all** — GitHub fires no check-run for a
+    // CONFLICTING head, and `gh pr checks` shows only an unrelated failing
+    // check, so the PR looks "never triggered" while it is really unverified
+    // (#304, PR #301). Rebasing onto the current `main` immediately before
+    // opening the PR is what keeps the gate attached.
+    'GÜNCEL TUT: PR açmadan hemen önce `git fetch origin main && git rebase ' +
+      'origin/main` çalıştır. Çakışma varsa çöz ya da dur — çakışan (CONFLICTING) ' +
+      'bir PR açma; o PR\'a CI hiç çalışmaz ve doğrulanmamış kalır.',
     // Autonomy: the agent must verify its own work before opening the PR, and
     // retry a bounded number of times. The orchestrator re-spawns a failed lane
     // with the failure detail, so a fix round is a fresh, informed attempt.

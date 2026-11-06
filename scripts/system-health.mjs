@@ -15,6 +15,8 @@
 
 import { execFileSync } from 'node:child_process';
 
+import { failingWorkflows } from './system-health-core.mjs';
+
 const REPO = 'cenkmenk71-max/isbulkktc';
 const asJson = process.argv.includes('--json');
 
@@ -105,26 +107,32 @@ else if (stalled.length === 0 && stuck.length === 0) {
   note('ok', 'PRs', `${prs.length} open, all moving`);
 }
 
-// 3. Failed required checks on the default branch: the harness itself broken.
-const ciRuns = JSON.parse(
+// 3. Any red workflow on the default branch: the harness itself broken.
+//
+// This asks for the branch, not a workflow name. Naming `isbulkktc CI` went
+// blind when #375 dropped that workflow's `push` trigger — the query kept
+// returning its last run and answering "green" while the workflow that *does*
+// run on push, `Verify production deployment`, was failing. Reading whatever
+// runs on the branch cannot drift out of step with the gate.
+const branchRuns = JSON.parse(
   gh([
     'run',
     'list',
-    '--workflow',
-    'isbulkktc CI',
     '--branch',
     'main',
     '--limit',
-    '5',
+    '100',
     '--json',
-    'conclusion,createdAt',
+    'name,conclusion,status,createdAt',
   ]),
 );
-const mainFailures = ciRuns.filter((r) => r.conclusion === 'failure');
-if (mainFailures.length > 0) {
-  note('fail', 'main CI', `${mainFailures.length} of the last ${ciRuns.length} runs on main failed`);
+const red = failingWorkflows(branchRuns);
+if (branchRuns.length === 0) {
+  note('warn', 'main CI', 'no runs found on main');
+} else if (red.length > 0) {
+  note('fail', 'main CI', `${red.length} workflow(s) red on main: ${red.join(', ')}`);
 } else {
-  note('ok', 'main CI', `last ${ciRuns.length} runs on main are green`);
+  note('ok', 'main CI', `every workflow on main is green`);
 }
 
 // 4. Runs held for approval: invisible unless asked for.
