@@ -711,3 +711,50 @@ kodlamayı **tek tek** izole et (burada tek kaçan `%2F`); (2) "Normalize incomi
 URLs'ı aç" önerisini **test etmeden** yazma — RFC 3986 rezerve `/`'yi çözmez;
 (3) CF panel tavanlarını (HSTS `max-age` 1–12 ay) resmî dokümandan doğrula,
 yoksa "hizala" önerisi imkânsız çıkar.
+
+### Edge mikro-denetim tur 27 — `%2F` mekanizması + kural-bazlı WAF asimetrisi (2026-11-06)
+
+```
+Lane: LANE-CLOUDFLARE  Branch: lane/cloudflare  PR: #<bu PR>
+Değişen dosyalar: docs/cloudflare.md, docs/lanes/02-cloudflare.md
+Kontroller: lint ✅  typecheck ✅  check:frontend-source ✅  test:unit ✅
+            (CI: Static/Database/E2E — PR açılışında)
+Canlıya dokundu mu: hayır (read-only; CF paneli/DNS/cache/WAF değiştirilmedi)
+Sahibin yapması gerekenler: N-01r (WAF kurallarını `url_decode` üzerinden kur, onay) ·
+            H-01r (HSTS 1–12 ay tavanı; preload `pending` → "kapat" riskli) ·
+            H-02 (Browser Cache TTL) · R-01 · G-01 · F-08 · #227 (DKIM 2048)
+Sonraki lane için notlar: (1) `%2F` kaçışı kurala bağlı — kuralın literalinde `/`
+            varsa atlanır, yoksa (`wp-admin`) bloklu kalır; "hepsi" deme, matrisi ölç.
+            (2) `Normalize incoming URLs` bu boşluğu KAPATMAZ (rezerve `/` çözülmez) —
+            tek düzeltme ifadede `url_decode`. (3) Tur 26'nın "üç kategori de" özeti
+            fazla genişti → düzeltildi. (4) #163 CF halkası TEMİZ; kopuk halka
+            LANE-SEO'da (#173). (5) Preload `pending` iken HSTS `max-age` 12 ayın
+            altına inmemeli.
+```
+
+**Ne ölçüldü (tur 27).**
+
+- **N-01r (mekanizma, orta):** CF WAF'tan önce **yalnız unreserved** karakterleri
+  çözer (`%2E`→`.`) — **rezerve `/` (`%2F`) çözülmez**; origin ise çözer. Kesin
+  kanıt: `/api/build-info` ve `/api%2Fbuild-info` ikisi de **200, aynı 80 B JSON**;
+  `/api%252Fbuild-info` → 404.
+- **Kural-bazlı asimetri:** `/api/devtools/` ve `/.git/` (literalinde `/`) `%2F` ile
+  **atlanıyor** (`x-vercel-id` dolu, 404 origin); `/wp-admin`, `/phpmyadmin`, `.env`
+  (literalinde `/` yok) **403 CF'te kalıyor**. Tur 26'nın "üç kategori de" iddiası
+  **düzeltildi**.
+- **N-06:** Sınıf adı **"`/`-içeren literaller"**; `%09`/`;` gibi kodlu ayraçlar
+  kuralı bozmuyor (`/api/devtools/x%09x` → 403).
+- **N-03r:** `%2F` API yolları origin'de 500 (`/api/qr`, `/api/push/subscriptions`,
+  `/api/email/unsubscribe`); `/api%2Fbuild-info` 200. CF değil, `src/app/api/**`.
+- **Kapalı kayıt — #163 CF halkası TEMİZ:** Googlebot/bingbot/YandexBot 200,
+  `cf-mitigated` yok; 207 `<loc>` hepsi apex host'ta; `google-site-verification`
+  gerçek sayfalarda var; robots yalnız `/api/`+`/auth/`+varsayılan-olmayan diller.
+  Kopuk halka **LANE-SEO**'da ve zaten açık: Bing artefaktı yok → **#173**.
+- **Kapalı kayıt — TLS/CAA/DNSSEC:** sertifika **Let's Encrypt** (apex CAA ile
+  uyumlu); **DNSSEC `AD=true`**; `www` CAA ayrı kaydı yok ama **RFC 8659** gereği
+  apex kapsar; **HSTS preload `pending`**.
+- **Cache:** `%2F` yolları ve cache-deception varyantları `DYNAMIC`/`BYPASS`,
+  `private` → poisoning yüzeyi yok. **H-02** başlıkları sabit.
+
+**Açık (değişmedi):** H-01r, H-02, N-01r, R-01, G-01, F-08, SR-01.
+**Devir:** N-05 → **#437** (açık); N-03 → `src/app/api/**`.
