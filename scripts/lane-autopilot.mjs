@@ -42,6 +42,14 @@ const API = 'https://app.all-hands.dev/api/v1';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..');
 const REGISTRY = JSON.parse(readFileSync(join(HERE, 'lanes.json'), 'utf8'));
+
+// The model every lane runs on. Passed explicitly at spawn because the
+// account-level default is the cheap tier (deepseek-v4.1-flash), and setting it
+// through the settings API did not take effect: the org endpoint accepted
+// agent_settings_diff and read back as deepseek-v4-pro, yet every conversation
+// still started on flash. Passing it per spawn is the one path that is verified
+// to work, and it makes the choice visible here instead of hidden in a setting.
+const LANE_MODEL = REGISTRY.model ?? 'openhands/deepseek-v4-pro';
 // The state file is gitignored. The autopilot workflow caches this exact path
 // between scheduled runs so the attempt counters survive on a fresh runner.
 const STATE_FILE = join(REPO_ROOT, '.lane-state.json');
@@ -333,6 +341,9 @@ async function spawnLane(name, context) {
       selected_branch: 'main',
       git_provider: PROVIDER,
       title: `LANE-${name}`,
+      // Explicit: the account default is the cheap tier, and a setting change
+      // did not stick (see LANE_MODEL).
+      llm_model: LANE_MODEL,
       initial_message: {
         role: 'user',
         content: [{ type: 'text', text: laneKickoff(name, context) }],
