@@ -99,11 +99,17 @@ async function extractPlainText(file: File): Promise<string> {
     // CVs exported from macOS/Windows editors are frequently UTF-16 or carry a
     // BOM; decoding those as UTF-8 turns every character into a replacement
     // glyph, which the parser then reads as one unbroken token.
+    //
+    // The WHATWG `utf-16` label is little-endian only, so a big-endian BOM
+    // (`FE FF`) decoded with it yields mojibake (`\uFFFE\u4100…`). Pick the
+    // byte-order-specific label; both are mandatory labels Node supports even
+    // without full ICU, and each strips its own BOM. A file with no BOM keeps
+    // the existing UTF-8 path.
     const bytes = new Uint8Array(data);
-    const isUtf16 =
-      (bytes[0] === 0xff && bytes[1] === 0xfe) ||
-      (bytes[0] === 0xfe && bytes[1] === 0xff);
-    text = new TextDecoder(isUtf16 ? "utf-16" : "utf-8").decode(data);
+    const isUtf16Le = bytes[0] === 0xff && bytes[1] === 0xfe;
+    const isUtf16Be = bytes[0] === 0xfe && bytes[1] === 0xff;
+    const encoding = isUtf16Be ? "utf-16be" : isUtf16Le ? "utf-16le" : "utf-8";
+    text = new TextDecoder(encoding).decode(data);
   } catch {
     throw new DocumentImportError("unreadable");
   }
