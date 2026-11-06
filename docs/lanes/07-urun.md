@@ -648,3 +648,39 @@ kasıtlı tutarlılık, bug değil.
 `src/features/candidates/resume-parser.ts` (876 satır): yalnız uç-girdi probu;
 satır satır okunmadı. `company-directory.tsx`, `install-experience.tsx`: yalnız
 ilgili yollar.
+
+---
+
+## Tur 13 — UTF-16 big-endian CV mojibake (#310)
+
+### Alınan issue
+Kuyrukta `lane:urun` + `agent:handoff` etiketli **#310** (LANE-QA buldu, bana
+devretti): `src/features/documents/text-document-extractor.ts` BE dosyayı bozuk
+çözüyor.
+
+### Doğrulanan kanıt (gerçek modül)
+`extractPlainText` her iki BOM'u algılıyor ama çözme etiketi sabit `"utf-16"`.
+WHATWG Encoding'e göre `utf-16` **yalnız LE**; BE ancak `utf-16be` ile çözülür:
+```
+FE FF 00 41 00 42  (BE "AB")  önce -> "\uFFFE\u4100\u4200"   sonra -> "AB"
+FF FE 41 00 42 00  (LE "AB")        -> "AB"                  -> "AB"
+EF BB BF 41 00 42  (UTF-8 BOM)      -> "AB"                  -> "AB"
+```
+
+### Düzeltme
+Byte-order'a özel etiket: `isUtf16Be ? "utf-16be" : isUtf16Le ? "utf-16le" : "utf-8"`.
+Her iki etiket Node'un ICU'suz dağıtımında da desteklenir ve kendi BOM'unu sıyırır;
+BOM'suz dosya mevcut `utf-8` yolunu korur.
+
+### Kanıt
+LANE-QA'nın `tests/unit/document-import.test.ts` içinde `todo` ile pinlediği test
+artık **geçiyor** (`todo` `✔` olur). Kod değişikliği yalnız bu; ek test gerekmedi
+(todo zaten kanıt testiydi).
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (628, 0 fail)/test:security/
+test:integration (61, 0 fail)/build → hepsi yeşil. Canlıya dokunulmadı.
+
+### Not
+`tests/unit/**` LANE-QA'nın; testi **değiştirmedim**, yalnız kaynağı düzelterek
+todo'yu yeşile çevirdim.
