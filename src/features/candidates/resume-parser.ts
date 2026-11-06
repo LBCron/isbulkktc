@@ -369,6 +369,7 @@ const personalDataStems = [
   "pasaport",
   "nüfus",
   "nufus",
+  "medeni",
 ];
 const personalDataWords = new Set([
   "age",
@@ -387,6 +388,13 @@ const personalDataWords = new Set([
   "yaşında",
   "yas",
   "iban",
+  // Personal-status fields. Deliberately unambiguous tokens only: generic
+  // English adjectives ("single", "married") appear in ordinary CV prose, so
+  // they are not treated as personal data here.
+  "marital",
+  "cinsiyet",
+  "uyruk",
+  "ehliyet",
 ]);
 
 function isPersonalDataLine(line: string): boolean {
@@ -488,6 +496,21 @@ function isPureDateLine(line: string, range: DateRange | null): boolean {
 function firstYearIn(line: string): number | null {
   const match = singleYearPattern.exec(line);
   return match ? Number(match[0]) : null;
+}
+
+/**
+ * True when the line is just a comma/pipe-separated list of districts
+ * ("Lefkoşa, Girne") — a location, not a professional headline. A single
+ * district already resolves through `resolveNorthernCyprusDistrict`; this only
+ * catches the multi-district list that resolves to `null` as a whole (#339).
+ */
+function looksLikeDistrictList(line: string): boolean {
+  const segments = line
+    .split(/[,;/|]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length < 2) return false;
+  return segments.every((segment) => resolveNorthernCyprusDistrict(segment) !== null);
 }
 
 /**
@@ -881,7 +904,19 @@ function inferSections(loose: string[]): Map<ResumeSection, string[]> {
     // profile field — its value is not a headline or a location (#208).
     if (/^[^:：]{1,64}\s*[:：]/.test(line) && isPersonalDataLine(line)) continue;
 
+    // An unlabelled personal-data line ("1995-2000 doğumlu") is not a headline
+    // either (#339). The labeled gate above does not catch it, and the
+    // `index === bodyStart` branch below would otherwise take it as the
+    // candidate's professional title.
+    if (isPersonalDataLine(line)) continue;
+
     if (resolveNorthernCyprusDistrict(line)) {
+      if (!sections.has("location")) push("location", line);
+      continue;
+    }
+
+    // A bare district list ("Lefkoşa, Girne") is a location, not a headline.
+    if (looksLikeDistrictList(line)) {
       if (!sections.has("location")) push("location", line);
       continue;
     }
