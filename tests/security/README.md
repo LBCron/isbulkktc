@@ -36,6 +36,7 @@ a boundary regression is attributable at a glance.
 | `anonymous-rpc-throttle.test.ts` | the action throttles before the RPC and the mail fan-out (ordering, not presence); the throttle also lives inside the anon RPC bodies (a gate); the action-path IP dimension is still one shared bucket |
 | `session-cookie-flags.test.ts` | the Supabase session cookie's `HttpOnly`/`Secure`/`SameSite` flags, the OAuth-intent cookie's flags, and the controls around them |
 | `locale-cookie-flags.test.ts` | the `NEXT_LOCALE` locale cookie's flags, driven through the real middleware with the app's own `routing.ts` (a `todo` pins the missing `Secure`; the `HttpOnly` question is answered in the file) |
+| `log-safety.test.ts` | no `console.*` call logs a credential (#418 §7): the first argument is a label string or a shared event name, never a raw object/`Error`; and no argument mentions a credential-bearing expression (`process.env.*_SECRET`, a bare `password`/`token`/`secret` value). A ratchet — clean today, 5 self-tests pin the rules |
 | `api-response-surface.test.ts` | the App Router API response surface (#424): `/api/build-info` returns exactly `{commit, environment}` and its own `no-store`; no source or config file adds `Access-Control-Allow-Origin` (the live header is Vercel platform behaviour, proven absent on the local standalone); every `src/app/api/**/route.ts` declares `dynamic`; every `force-static` route pairs it with `no-store` |
 
 ## Findings
@@ -70,6 +71,9 @@ hand-written list of routes, clients or RPCs silently stops covering the next
 one added. `cron-route-auth` scans `src/app/api/**` for the bearer-guard shape,
 `session-cookie-flags` scans `src/**` for `createServerClient(...)`,
 `notification-worker-auth` scans `supabase/config.toml` for `verify_jwt = false`,
+the bearer-guard header matcher is shared by both via `authorization-header.ts`
+(any casing and both `.get(...)`/`[...]` forms — HTTP header names are
+case-insensitive and `"Authorization"` is canonical),
 `anonymous-rpc-throttle` scans the grants for `anon`-callable writers,
 `auth-captcha-wiring` scans `src/features/identity/**` for captcha-protected
 calls (every occurrence, not just the first), and `anonymous-write-surface`

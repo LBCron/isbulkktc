@@ -923,3 +923,215 @@ auth-captcha-wiring, unsubscribe-route-auth) bu turda **bakılmadı** — öncek
 turlarda denetlendi, CI yeşil. Açık `todo`'lar değişmedi: #298, #206, #102,
 #418 §6 ve LANE-SUPABASE'in `list_engagement_recipients`/`opt_out_engagement`
 auth.role() guard'ı (sql-hardening).
+
+## Tur — deploy kotası: Vercel build-rate limiti bir daha dolmasın (#319)
+
+**Lane:** GÜVENLİK (orkestratör) · **Branch:** `lane/guvenlik`
+
+### Ölçülen durum — iki katmanlı kök neden
+
+Sahip "siteye giriyorum, canlı destek yok" dedi. Canlı sitede ölçüm:
+
+| Ölçüm | Değer |
+|---|---|
+| `https://isbulkktc.com/api/build-info` | `commit 3336de5`, `production` |
+| `origin/main` ucu | `6e93629` |
+| `3336de5` main'in atası mı? | **evet** (canlı geride, ayrışmış değil) |
+| son 3 main merge'inin Vercel durumu | `failure — Deployment rate limited — retry in 24 hours` |
+| Vercel hedef URL'i | `vercel.com/orijin1?upgradeToPro=build-rate-limit` |
+
+Yani **her merge 24 saat boyunca canlıya çıkmıyor**; Hobby planı *build sayısını*
+sayıyor ve on iki aktif lane'in her push'u kendi preview build'ini yaratıp kotayı
+tüketiyor. `prune-vercel-deployments` depolamayı temizler ama **build** sayacını
+sıfırlamaz — bu yüzden kotayı açan şey değil.
+
+### Bulgu — iptal edilen build de kotaya sayılıyor
+
+Vercel dokümanı (Ignored Build Step): *"Canceled builds are counted as full
+deployments as they execute a build command in the build step… any canceled
+builds initiated using the ignore build step will still count towards your
+deployment quotas."* Yani `ignoreCommand` **yanlış kaldıraçtır** — build'i iptal
+eder ama kotadan düşmez. Kotayı korumanın tek yolu deployment'ı **hiç
+yaratmamaktır**.
+
+### Düzeltme
+
+Kök `vercel.json` → `git.deploymentEnabled` (minimatch, Vercel'in resmî anahtarı):
+
+```json
+{ "git": { "deploymentEnabled": { "**": false, "main": true } } }
+```
+
+Kural: bir branch, eşleşen en az bir kural `true` ise deploy eder; eşleşmeyen
+branch varsayılan `true`. `**` tüm branch'leri kapatır, `main` tek istisnadır →
+**yalnız `main` build yaratır**, her `lane/*`/`fix/*`/dependabot/renovate push'u
+deployment bile oluşturmaz.
+
+**Merge'i engellemez:** Vercel zorunlu check değil; branch protection yalnız
+"Quality, database and E2E" istiyor (ölçüldü). Preview build'i kaybetmek hiçbir
+CI adımını kırmaz — repo hiçbir yerde preview URL'ine bağlı değil
+(`isbulkktc-amber.vercel.app` bir **production** alias, build-info ile doğrulandı).
+
+### Kapı (kendi dosyam)
+
+`tests/security/vercel-deploy-gate.test.ts` (yeni, 5 test, `todo` yok): `main`
+deploy eder; 8 örnek lane/fix/bot branch'i **etmez**; eşleşmeyen branch varsayılan
+`true`; glob semantiği segment-farkında (minimatch); gönderilen config **tam
+olarak iki kural** (daha genişi kırmızı).
+
+**Kanıt (mutation).** `deploymentEnabled` → `{"**":true,"main":true}` yapınca
+**2 kırmızı**; geri alınca **5 yeşil**.
+
+### Devir
+
+- **Yapısal boşluk → LANE-INFRA.** Kök `vercel.json` hiçbir lane'in sahiplik
+  tablosunda yok (tıpkı `src/proxy.ts` ve `src/app/api/build-info/**` gibi).
+  Sahiplik tablosunun sahibi LANE-INFRA; `vercel.json` satırının eklenmesi için
+  not bırakıldı.
+- LANE-TESLİMAT: `prune-vercel-deployments.mjs` build sayacını sıfırlamıyor —
+  bu turun bulgusu, davranış değişikliği istemiyor, ama doküman notu hak ediyor.
+
+### Kapılar
+
+`lint` temiz, `typecheck` temiz, `check:frontend-source` geçti.
+`test:security` **125 test / 121 pass / 0 fail / 4 todo** (önceki 120/116 → +5).
+`test:unit` **739 test / 737 pass / 2 todo** (değişmedi).
+
+### Bakılmayan
+
+Bu turda tam taranan: `vercel.json` (yeni), `tests/security/vercel-deploy-gate.test.ts`
+(yeni), `.github/workflows/prune-vercel-deployments.yml`, `docs/lanes/09-guvenlik.md`.
+`tests/security/**` kalan 19 dosya bu turda **bakılmadı** — önceki turlarda
+denetlendi, CI yeşil. Açık `todo`'lar değişmedi: #298, #206, #102, #418 §6.
+
+## Tur — micro-denetim: bearer-guard dedektörlerinin başlık-yazımı körlüğü
+
+**Lane:** GÜVENLİK · **Branch:** `lane/guvenlik`
+
+AUDIT.md micro-denetimi: `tests/security/**` sahipli 20 dosya tarandı, bu turda
+dört dosya satır satır denetlendi (`cron-route-auth`, `notification-worker-auth`,
+`authorization-header` (yeni), `push-endpoint-ssrf`) + iki doküman.
+
+### Bulgu — HTTP başlık adı büyük/küçük harf körlüğü (gerçek yanlış-negatif)
+
+`cron-route-auth.test.ts`'in keşif predicate'i `Authorization` başlığını **küçük
+harfli** literalle arıyordu:
+
+```ts
+/headers\.get\(\s*["']authorization["']\s*\)/
+```
+
+HTTP başlık adları büyük/küçük harf duyarsızdır ve `"Authorization"` **kanonik**
+yazımdır. `headers.get("Authorization")` yazan bir cron rotası **keşfedilmiyor**,
+yani sıralama / fail-closed / yansıma kontrollerinin **hiçbiri** onun için
+koşmuyordu — sessiz yeşil. Ölçülen biçimler:
+
+| Biçim | Eski dedektör |
+|---|---|
+| `headers.get("authorization")` | keşfedildi |
+| `headers.get("Authorization")` (kanonik) | **MISSED** |
+| `headers.get("AUTHORIZATION")` | **MISSED** |
+| `headers["authorization"]` | **MISSED** |
+| `"Bearer " + s` | **MISSED** |
+| `const { X } = process.env` | **MISSED** |
+| `process.env["X"]` | **MISSED** |
+| `new Headers(...)` | **MISSED** |
+
+8/8 gerçekçi biçimin 7'si kaçırılıyordu.
+
+### Düzeltme
+
+`authorizationLookup` artık `.get(...)` ve bracket biçimini, **her harf
+durumunda** görüyor; `cron-route-auth` ve `notification-worker-auth` aynı
+matcher'ı `tests/security/authorization-header.ts`'ten okuyor (iki tarayıcı
+`sql-hardening` kardeşlerinde bir kez sürüklendiği için tek kaynak).
+
+### Kanıt (mutation)
+
+`createSupabaseServiceClient()`'ı `headers.get("Authorization")` kontrolünden
+**önce** çağıran `src/app/api/probe-cron-case/route.ts` eklendi:
+
+| Dedektör | probe-cron-case | Sonuç |
+|---|---|---|
+| eski (case-sensitive) | keşfedilmedi | 0 kırmızı — **sessiz yeşil** |
+| yeni (case-insensitive) | keşfedildi | 1 kırmızı — "authenticates before it inspects its configuration" |
+
+Probe temizlendi; iki suite **15/15** yeşil.
+
+### Doğrulanan güçlü kontrol (bulgu yok)
+
+`push-endpoint-ssrf` allowlist'i 25 saldırgan girdiyle sınandı (loopback,
+RFC1918, metadata, decimal-IP, `[::ffff:127.0.0.1]`, `0x7f.0.0.1`, `127.1`,
+`fcm.googleapis.com@evil`, `fcm.googleapis.com\@127.0.0.1`, punycode,
+`%66cm...`): **hiçbir atlatma yok**. İki bilinçli genişlik (gerçek Apple
+`*.push.apple.com` / Windows bölgesel alt alanları) allowlist tasarımıdır.
+
+### Kapılar
+
+`lint` temiz, `typecheck` temiz, `check:frontend-source` geçti.
+`test:security` **125 test / 121 pass / 0 fail / 4 todo** (yeni self-test'ler
+mevcut testleri genişletti, sayı korundu). `test:unit` **739 test / 737 pass /
+2 todo** (değişmedi).
+
+### Bakılmayan
+
+Bu turda tam taranan: `cron-route-auth.test.ts`, `notification-worker-auth.test.ts`,
+`authorization-header.ts` (yeni), `push-endpoint-ssrf.test.ts`,
+`docs/threat-model.md`, `tests/security/README.md`, `docs/lanes/09-guvenlik.md`.
+`tests/security/**` kalan 16 dosya bu turda **bakılmadı** — önceki turlarda
+denetlendi, CI yeşil. Açık `todo`'lar değişmedi: #298, #206, #102, #418 §6.
+
+## Tur — micro-denetim: #418 §7 log güvenliği kapısı (kapısız madde kapatıldı)
+
+**Lane:** GÜVENLİK · **Branch:** `lane/guvenlik`
+
+#418 §7'nin yedi maddesinden altısı kapılıydı (çerez bayrakları ×2, auth
+sıralaması ×2, yanıt yüzeyi, CSRF/oturum bayrakları). **Yedincisi — "Log:
+şifre/token loglanmıyor" — kapısızdı.** `console.error("giriş başarısız", { password })`
+her kapı yeşilken gönderilebilirdi.
+
+### Bulgu (kanıtlı)
+
+| Boyut | Gözlenen | Beklenen | Etki |
+|---|---|---|---|
+| Log sızıntısı | `console.*` çağrılarını denetleyen **hiçbir** test yok (`grep -rl console tests/security` → yalnız ilgisiz 2 dosya) | her çağrı etiket loglar, kimlik ifadesi içermez | şifre/token bir log toplayıcısına düşer — hesap devri |
+
+Kod tabanı **bugün temiz** (ölçüldü): 91 `console.*` çağrısı, 0 kimlik ifadesi,
+1 izinli istisna (`EMAIL_HEALTH_EVENT` sabiti ilk argüman). Yani kapı bir
+**ratchet**: temizliği korur, gerilemeyi kırmızıya çevirir.
+
+### Düzeltme — `tests/security/log-safety.test.ts` (yeni, 5 test)
+
+- **Kural 1:** ilk argüman string/şablon literali veya paylaşılan olay adı
+  (`SCREAMING_SNAKE`); çıplak nesne/`Error` yasak.
+- **Kural 2:** argümanlarda kimlik ifadesi yasak — (a) değer biçimleri
+  (`process.env.*_SECRET|TOKEN|KEY`, `formData.get("password")`, `.access_token`,
+  `api_key`, `service_role`), (b) dize literalleri ayıklandıktan sonra çıplak
+  kimlik kelimesi. Ayıklama, `"Supabase password update failed."` gibi
+  **etiketleri** bulgu saymamak için şart.
+
+### Kanıt (mutation)
+
+| Enjekte edilen | Kural 1 | Kural 2 |
+|---|---|---|
+| `console.error("sign-in failed", { email, password })` | — | **kırmızı** (`password (bare value)`) |
+| `console.error(error)` | **kırmızı** (çıplak `Error`) | — |
+
+Probe temizlendi; 5/5 yeşil. **İlk sürüm kural 2 çıplak `password` değişkenini
+kaçırdı**; bu yanlış-negatif mutation sırasında ölçülüp dize-ayıklamalı kelime
+taraması eklendi (dedektörün kendi körlüğü de kanıtla kapatıldı).
+
+### Kapılar
+
+`lint` / `typecheck` / `check:frontend-source` temiz.
+`test:security` **130 test / 126 pass / 0 fail / 4 todo** (125→130).
+`test:unit` **739 / 737 pass / 2 todo** (değişmedi).
+
+### Bakılmayan
+
+Bu turda tam taranan: `log-safety.test.ts` (yeni), `session-cookie-flags.test.ts`,
+`locale-cookie-flags.test.ts`, `oauth-signup-intent.ts`,
+`src/features/identity/actions.ts`, `src/server/email/mailer.ts`,
+`docs/threat-model.md`, `tests/security/README.md`. `tests/security/**` kalan
+dosyalar bu turda **bakılmadı**. Açık `todo`'lar değişmedi: #298, #206, #102,
+#418 §6, #424 (M-01/M-03/M-04 → #434 ile kapılı; M-02 → #435 LANE-INFRA).

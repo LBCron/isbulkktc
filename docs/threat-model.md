@@ -569,3 +569,63 @@ build-info yalnız sürüm kimliği + `no-store`; depoda/konfigde **hiç** ACAO 
 (M-01 platform-only kaldığı sürece); her `src/app/api/**/route.ts` `dynamic`
 bildirir; her `force-static` rota `no-store` taşır. Üç self-test guard'ın
 görmediği biçimi göstermesi için (mutasyonla kanıtlandı).
+
+### Katmanın kendi dedektörleri (33. tur — HTTP başlık adı büyük/küçük harf körlüğü)
+
+31. turda dedektörler **konu keşfi**ne geçti; bu turda aynı sınıfın bir alt
+biçimi bulundu: keşif predicate'i konunun **yazımına** dar. İki bearer-guard
+dedektörü `Authorization` başlığını **küçük harfli** literalle arıyordu.
+
+- **Bulgu + düzeltme: `cron-route-auth.test.ts` başlık adına duyarlıydı.**
+  `isBearerSecretGuard` içindeki `/headers\.get\(\s*["']authorization["']/`
+  yalnız küçük harfli `.get("authorization")` biçimini görüyordu. HTTP başlık
+  adları **büyük/küçük harf duyarsızdır** ve `"Authorization"` kanonik yazımdır;
+  bu yüzden `headers.get("Authorization")` yazan bir cron rotası **keşfedilmiyor**,
+  dolayısıyla sıralama / fail-closed / yansıma kontrollerinin **hiçbiri** onun
+  için koşmuyordu. Ölçüm: 8 gerçekçi biçimin **7'si** kaçırıldı (kanonik
+  `"Authorization"` dâhil): `"AUTHORIZATION"`, `headers["authorization"]`,
+  `"Bearer " + s` birleştirmesi, `process.env` yıkımı, `process.env["…"]`,
+  `new Headers()` kopyası. `authorizationLookup` artık `.get(...)` ve bracket
+  biçimini, her harf durumunda (`/i`) görüyor.
+- **Düzeltme paylaşılan kaynağa çıkarıldı: `tests/security/authorization-header.ts`.**
+  Aynı körlük `notification-worker-auth.test.ts`'te de vardı (orada semptom
+  gürültülü: `authIndex > -1` iddiası kırmızı olur, ama sıralama yine
+  denetlenmez). İki tarayıcı `sql-hardening` kardeşlerinde bir kez sürüklendiği
+  için matcher tek bir modülden okunuyor; sürüklenme imkânsız.
+- **Kanıt (mutation).** `createSupabaseServiceClient()`'ı `headers.get("Authorization")`
+  kontrolünden **önce** çağıran bir `src/app/api/probe-cron-case/route.ts`
+  eklendi: **eski** dedektör onu keşfetmedi (0 kırmızı, sessiz yeşil), **yeni**
+  dedektör keşfedip "authenticates before it inspects its configuration"
+  testini kırmızıya çevirdi. Probe temizlendi; iki suite 15/15 yeşil.
+- **Bilinçli sınır (sessiz değil).** Başlık maddesi bir `headers` alıcısına
+  bağlı; başlık haritasını farklı adlı bir değişkene kopyalayan bir rota
+  (`const h = new Headers(request.headers); h.get(…)`) keşfedilmez. Bugün böyle
+  bir rota yok; çıkarsa bağ genişletilir.
+
+### Katmanın kendi dedektörleri (34. tur — log güvenliği: #418 §7 kapısız madde)
+
+#418 §7'nin **"Log: şifre/token loglanmıyor"** maddesi, hesap güvenliği
+kapsamındaki tek kapısız maddeydi: çerez bayrakları, auth sıralaması ve yanıt
+yüzeyi kapılıydı, ama bir `console.error("giriş başarısız", { password })` —
+kimliğin bir log toplayıcısına düşmesinin en yaygın yolu — her kapı yeşilken
+gönderilebilirdi. `tests/security/log-safety.test.ts` eklendi.
+
+- **Kural 1 — ilk argüman etiket olmalı.** Çıplak nesne/`Error` ilk argüman, bir
+  SDK hata gövdesinin (istek gövdesi dâhil) log'a taşınmasına izin verir. İzin
+  verilen: string/şablon literali veya paylaşılan olay adı (`EMAIL_HEALTH_EVENT`).
+  Ölçüm: kod tabanında **1** istisna var, o da onaylı `EMAIL_HEALTH_EVENT`.
+- **Kural 2 — argümanlarda kimlik ifadesi olmamalı.** İki katman: (a) değer
+  biçimleri (`process.env.*_SECRET|TOKEN|KEY`, `formData.get("password")`,
+  `.access_token`, `api_key`, `service_role`); (b) dize literalleri **ayıklandıktan
+  sonra** çıplak kimlik kelimesi (`password|token|secret|credential|authorization`).
+  Ayıklama şart: `"Supabase password update failed."` bir *etiket*, bulgu değil;
+  `{ email, password }` bir *değer*, bulgudur. Ölçüm: **0** kimlik ifadesi.
+- **Kanıt (mutation).** `console.error("sign-in failed", { email, password })`
+  + `console.error(error)` içeren bir probe dosyası: kural 1 `console.error(error)`
+  satırını, kural 2 `password (bare value)`'yu kırmızıya çevirdi. Probe temizlendi.
+  **İlk sürüm kural 2 yalnız değer biçimlerini tarıyordu ve çıplak `password`
+  değişkenini kaçırdı** — bu yanlış-negatif mutation sırasında ölçüldü ve dize
+  ayıklamalı kelime taraması eklendi.
+- **Bilinçli sınır (sessiz değil).** Kaynak-metin taraması; bir kimliği önce
+  yerel değişkene alıp sonra loglayan bir zincir (`const p = …; console.error(l, p)`)
+  görülmez. Bugün böyle bir zincir yok.
