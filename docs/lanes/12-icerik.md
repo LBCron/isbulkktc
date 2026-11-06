@@ -500,3 +500,23 @@ Ek gözlem: `src/features/identity/auth-metadata.test.ts:8` bir **yorumda** eski
 `Meta.title`'ı örnek gösteriyor (assertion değil) — LANE-AUTH dosyası, metin
 güncelliği için not.
 
+### Rapor (00-orchestration formatı)
+
+```
+Lane: icerik            Branch: lane/icerik            PR: #407
+Değişen dosyalar: src/messages/tr.json, src/i18n/message-catalogs.test.ts,
+  docs/lanes/12-icerik.md
+Çalıştırılan kontroller:
+  lint -> pass | typecheck -> pass | check:frontend-source -> pass
+  test:unit -> 705 pass / 0 fail | test:security -> pass | test:integration -> pass
+  e2e (CI) -> 1/4,2/4 pass; 3/4,4/4 fail (yalnız bayat pinler; devir #408)
+  database (CI) -> pass
+Canlıya dokundu mu: hayır
+Sahibin yapması gerekenler: (1) #408 pin düzeltmesini lane/icerik'e ekle (ya da
+  LANE-QA PR'ını bu PR ile birlikte merge et) — aksi halde required check yeşile
+  dönmez; (2) PR #407'i merge et.
+Sonraki lane için notlar: `tests/**` = LANE-QA; metin değişince e2e pinlerini
+  İÇERİK güncellemez, devreder. `münhal` #190 SEO terimi olarak JobsMeta.title'da
+  tek başına kalır.
+```
+
