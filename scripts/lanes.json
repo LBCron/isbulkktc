@@ -172,7 +172,7 @@
       ]
     },
     "operator": {
-      "brief": "OPERATOR",
+      "brief": "15-operator",
       "branch": "lane/operator",
       "wave": 0,
       "label": "agent:infra",
