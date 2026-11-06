@@ -207,19 +207,24 @@ export async function probeRecentOAuthErrors(token, projectRef, windowMinutes = 
   }
 }
 
-/** True when the production callback is covered by the redirect allowlist. */
+/**
+ * True when the production callback is covered by the redirect allowlist.
+ *
+ * Supabase matches an allowlist entry exactly unless it contains a wildcard:
+ * "The separator characters in a URL are defined as `.` and `/`", so a bare
+ * `https://isbulkktc.com` entry does **not** cover `https://isbulkktc.com/auth/callback`
+ * (`/auth/callback` spans separator characters). Only the exact callback path or
+ * the `/**` globstar covers it; treating a bare origin as sufficient reported a
+ * missing callback entry as healthy.
+ */
 export function callbackIsAllowed(origin, allowList) {
-  const expected = `${origin.replace(/\/$/, "")}/auth/callback`;
+  const base = origin.replace(/\/$/, "");
+  const expected = `${base}/auth/callback`;
   if (typeof allowList !== "string") return false;
   return allowList
     .split(",")
     .map((entry) => entry.trim().replace(/\/$/, ""))
-    .some(
-      (entry) =>
-        entry === expected ||
-        entry === `${origin.replace(/\/$/, "")}/**` ||
-        entry === `${origin.replace(/\/$/, "")}`,
-    );
+    .some((entry) => entry === expected || entry === `${base}/**`);
 }
 
 /**

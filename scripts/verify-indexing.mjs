@@ -85,6 +85,20 @@ export function parseRobots(text) {
   return { groups, sitemaps };
 }
 
+/**
+ * Whether two URLs share an origin. A prefix test is not enough: a
+ * `startsWith("https://isbulkktc.com")` accepts `https://isbulkktc.com.evil.example`
+ * and `https://isbulkktc.com.au` — the same substring confusion that produced
+ * the SPF false-PASS — so the parsed origin must be compared exactly.
+ */
+export function isSameOrigin(url, origin) {
+  try {
+    return new URL(url).origin === new URL(origin).origin;
+  } catch {
+    return false;
+  }
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -151,10 +165,13 @@ function tagText(block, tag) {
 }
 
 function tagAttr(tagString, name) {
+  // HTML/XML allow single- or double-quoted attribute values; a double-quote
+  // only regex reads `<meta name='robots' content='noindex'>` as "no directive".
   const match = String(tagString).match(
-    new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i"),
+    new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
   );
-  return match ? decodeXml(match[1]) : null;
+  if (!match) return null;
+  return decodeXml(match[1] ?? match[2]);
 }
 
 /**
@@ -269,6 +286,24 @@ export function validateHreflang(alternates, loc, origin) {
   return { ok: problems.length === 0, problems };
 }
 
+/**
+ * Reads a `<meta name=… content=…>` by name, in either attribute order. HTML
+ * attribute order is not significant, so a regex that assumes `name` precedes
+ * `content` silently misses `<meta content="noindex" name="robots">` and the
+ * page reads as indexable.
+ */
+export function findMetaContent(html, name) {
+  const wanted = String(name).toLowerCase();
+  for (const tag of String(html).matchAll(/<meta\b[^>]*>/gi)) {
+    const tagName = tagAttr(tag[0], "name");
+    if (tagName && tagName.toLowerCase() === wanted) {
+      const content = tagAttr(tag[0], "content");
+      if (content !== null) return content;
+    }
+  }
+  return null;
+}
+
 /** The canonical and robots directives a page's HTML head declares. */
 export function extractPageSignals(html) {
   const text = String(html);
@@ -276,13 +311,8 @@ export function extractPageSignals(html) {
     text.match(/<link\b[^>]*\brel=["']canonical["'][^>]*\bhref=["']([^"']*)["']/i)?.[1] ??
     text.match(/<link\b[^>]*\bhref=["']([^"']*)["'][^>]*\brel=["']canonical["']/i)?.[1] ??
     null;
-  const metaRobots =
-    text.match(/<meta\b[^>]*\bname=["']robots["'][^>]*\bcontent=["']([^"']*)["']/i)?.[1] ??
-    null;
-  const siteVerification =
-    text.match(
-      /<meta\b[^>]*\bname=["']google-site-verification["'][^>]*\bcontent=["']([^"']*)["']/i,
-    )?.[1] ?? null;
+  const metaRobots = findMetaContent(text, "robots");
+  const siteVerification = findMetaContent(text, "google-site-verification");
   return {
     canonical: canonical ? decodeXml(canonical) : null,
     metaRobots: metaRobots ? metaRobots.toLowerCase() : null,
@@ -361,9 +391,17 @@ async function fetchText(url, { userAgent, timeoutMs = 20_000 } = {}) {
       redirect: "follow",
       signal: controller.signal,
     });
-    return { status: response.status, body: await response.text().catch(() => ""), error: null };
+    return {
+      status: response.status,
+      body: await response.text().catch(() => ""),
+      // A page can be deindexed by an `X-Robots-Tag` header alone, with no
+      // `<meta name="robots">` in the HTML — so the header must be read, not
+      // assumed absent.
+      xRobotsTag: response.headers.get("x-robots-tag"),
+      error: null,
+    };
   } catch (error) {
-    return { status: 0, body: "", error: error.message };
+    return { status: 0, body: "", xRobotsTag: null, error: error.message };
   } finally {
     clearTimeout(timer);
   }
@@ -394,7 +432,7 @@ async function checkRobots() {
     record("robots", "fail", "robots.txt disallows crawling the site root");
     return robots;
   }
-  const sitemap = robots.sitemaps.find((s) => s.startsWith(ORIGIN));
+  const sitemap = robots.sitemaps.find((s) => isSameOrigin(s, ORIGIN));
   if (!sitemap) {
     record("robots", "fail", "robots.txt does not advertise the origin's sitemap");
     return robots;
@@ -499,23 +537,35 @@ export function sampleUrls(urls, size) {
   return picked;
 }
 
+/**
+ * Turns one fetched page into an indexability verdict, reading both the meta
+ * robots directive and the `X-Robots-Tag` header. Kept pure and exported so a
+ * regression in the wiring (a header fetched but not consulted) fails a test
+ * rather than silently passing every page.
+ */
+export function verdictForPage({ status, body, xRobotsTag, loc, origin }) {
+  const signals = extractPageSignals(body);
+  return evaluateIndexability({
+    status,
+    canonical: signals.canonical,
+    metaRobots: signals.metaRobots,
+    xRobotsTag,
+    loc,
+    origin,
+  });
+}
+
 async function checkPages(parsed) {
   if (!parsed || parsed.urls.length === 0) return;
   const locs = sampleUrls(parsed.urls, SAMPLE_SIZE);
   let checked = 0;
   const failures = [];
   for (const loc of locs) {
-    const { status, body, error } = await fetchText(loc, { userAgent: "Googlebot/2.1 (+http://www.google.com/bot.html)" });
-    if (error || looksChallenged(status, body)) continue;
-    const signals = extractPageSignals(body);
-    const verdict = evaluateIndexability({
-      status,
-      canonical: signals.canonical,
-      metaRobots: signals.metaRobots,
-      xRobotsTag: null,
-      loc,
-      origin: ORIGIN,
+    const { status, body, xRobotsTag, error } = await fetchText(loc, {
+      userAgent: "Googlebot/2.1 (+http://www.google.com/bot.html)",
     });
+    if (error || looksChallenged(status, body)) continue;
+    const verdict = verdictForPage({ status, body, xRobotsTag, loc, origin: ORIGIN });
     checked += 1;
     if (!verdict.ok) failures.push(`${loc}: ${verdict.reason}`);
   }
@@ -553,7 +603,7 @@ async function checkIndexNow() {
 async function main() {
   console.log(`Indexing check for ${ORIGIN}\n`);
   const robots = await checkRobots();
-  const sitemapUrl = robots?.sitemaps.find((s) => s.startsWith(ORIGIN)) ?? `${ORIGIN}/sitemap.xml`;
+  const sitemapUrl = robots?.sitemaps.find((s) => isSameOrigin(s, ORIGIN)) ?? `${ORIGIN}/sitemap.xml`;
   const parsed = await checkSitemap(sitemapUrl);
   await checkSingleLocaleConsolidation(parsed);
   await checkPages(parsed);
