@@ -7,11 +7,13 @@ import {
   extractPageSignals,
   hasLocalePrefix,
   isPathAllowed,
+  isSameOrigin,
   parseRobots,
   parseSitemap,
   sampleUrls,
   validateHreflang,
   validateLoc,
+  verdictForPage,
 } from "./verify-indexing.mjs";
 
 const ORIGIN = "https://isbulkktc.com";
@@ -162,6 +164,24 @@ test("page signals are read from either attribute order", () => {
   assert.equal(b.metaRobots, null);
 });
 
+test("meta directives are read in either attribute order and either quote style", () => {
+  // Attribute order and quote style are not significant in HTML; assuming
+  // `name` before `content` or double quotes only misses a real `noindex`.
+  assert.equal(extractPageSignals('<meta name="robots" content="noindex">').metaRobots, "noindex");
+  assert.equal(extractPageSignals('<meta content="noindex" name="robots">').metaRobots, "noindex");
+  assert.equal(extractPageSignals("<meta name='robots' content='noindex'>").metaRobots, "noindex");
+  assert.equal(
+    extractPageSignals('<meta name="description" content="x"><meta name="robots" content="NOINDEX">')
+      .metaRobots,
+    "noindex",
+  );
+  assert.equal(extractPageSignals('<meta name="robots">').metaRobots, null);
+  assert.equal(
+    extractPageSignals('<meta name="google-site-verification" content="abc">').siteVerification,
+    "abc",
+  );
+});
+
 test("indexability rejects noindex, missing/relative/off-origin/default-locale canonicals and mismatches", () => {
   const loc = "https://isbulkktc.com/en";
   const base = { status: 200, loc, origin: ORIGIN };
@@ -198,6 +218,40 @@ test("the IndexNow key is only valid when the served body matches", () => {
   assert.equal(evaluateIndexNowKey({ status: 200, body: "other", key }).state, "mismatch");
   assert.equal(evaluateIndexNowKey({ status: 404, body: "", key }).state, "unreachable");
   assert.equal(evaluateIndexNowKey({ status: 0, body: "", key, error: "ETIMEDOUT" }).state, "unreachable");
+});
+
+test("isSameOrigin rejects a lookalike host a prefix test would accept", () => {
+  assert.equal(isSameOrigin(`${ORIGIN}/sitemap.xml`, ORIGIN), true);
+  // The prefix trap: both of these `startsWith("https://isbulkktc.com")`.
+  assert.equal(isSameOrigin("https://isbulkktc.com.evil.example/sitemap.xml", ORIGIN), false);
+  assert.equal(isSameOrigin("https://isbulkktc.com.au/sitemap.xml", ORIGIN), false);
+  assert.equal(isSameOrigin("http://isbulkktc.com/sitemap.xml", ORIGIN), false); // scheme differs
+  assert.equal(isSameOrigin("not a url", ORIGIN), false);
+});
+
+test("verdictForPage consults the X-Robots-Tag header, not just the meta tag", () => {
+  // Regression: the page fetch read the header but `checkPages` passed a
+  // hardcoded `null`, so a header-only `noindex` was invisible to the live run.
+  const loc = `${ORIGIN}/en`;
+  const html = `<link rel="canonical" href="${loc}">`;
+  assert.equal(
+    verdictForPage({ status: 200, body: html, xRobotsTag: null, loc, origin: ORIGIN }).ok,
+    true,
+  );
+  const headerOnly = verdictForPage({
+    status: 200,
+    body: html,
+    xRobotsTag: "noindex",
+    loc,
+    origin: ORIGIN,
+  });
+  assert.equal(headerOnly.ok, false);
+  assert.equal(headerOnly.state, "noindex");
+  // A header that only repeats `index, follow` is not a block.
+  assert.equal(
+    verdictForPage({ status: 200, body: html, xRobotsTag: "index, follow", loc, origin: ORIGIN }).ok,
+    true,
+  );
 });
 
 test("sampling keeps the first URL and respects the size", () => {

@@ -179,3 +179,57 @@ alternate ilan edip kümeyi bölerdi. Kural düzeltildi; tek dilli girdi için
 
 Bu, tur 2 (blokliste yanlış "temiz") ve tur 3 (SPF yanlış "PASS") ile aynı
 sınıf: ölçüm aracının kendi kusuru sonuç gibi okunmamalı.
+
+## Tur 5 — ölçüm araçlarının kendi kusurları (2026-11-05)
+
+Tur 2/3/4'ün ortak teması: **araç kusuru sonuç gibi okunmamalı**. Tur 5 aynı
+sınıftan beş kusur daha çıkardı; hepsi kendi dosyalarımda (`scripts/verify-*.mjs`)
+düzeltildi ve regresyon testiyle sabitlendi.
+
+| # | Dosya | Kusur | Kanıt | Etki | Düzeltme |
+|---|---|---|---|---|---|
+| 1 | `verify-indexing.mjs` | `evaluateIndexability` `X-Robots-Tag` parametresi alıyor, testi geçiyor; ama `checkPages` ona **hep `null`** veriyordu ve `fetchText` yanıt başlıklarını hiç okumuyordu | kod: `xRobotsTag: null` (satır ~515), `fetchText` yalnız `response.text()` | Yalnız başlıkla `noindex`'lenen sayfa "indexable" görünür | `fetchText` başlığı okur; `verdictForPage` çıkarıldı + test |
+| 2 | `verify-indexing.mjs` | robots'un ilan ettiği sitemap `s.startsWith(ORIGIN)` ile seçiliyordu | `https://isbulkktc.com.evil.example/sitemap.xml` → `startsWith` **true** | Rakip/yanlış host sitemap'i takip edilir | `isSameOrigin` (tam origin) + test |
+| 3 | `verify-indexing.mjs` | `<meta name=… content=…>` regex'i yalnız `name` önce + çift tırnak | `<meta content="noindex" name="robots">` → `metaRobots=null` | Geçerli `noindex` kaçar; sayfa indexable sanılır | `findMetaContent` (sıra/quote bağımsız) + test |
+| 4 | `verify-auth-config.mjs` | `callbackIsAllowed` çıplak origin girdisini (`https://isbulkktc.com`) callback'i kapsıyor sayıyordu | `callbackIsAllowed(origin, origin)` → **true**; GoTrue `glob.MustCompile(uri, '.', '/')` | Allowlist'te callback yokken "sağlıklı" raporlanır | yalnız `…/auth/callback` veya `…/**` kabul + test |
+| 5 | `verify-deliverability.mjs` | (temiz — SPF/DKIM/DMARC/IP ayrıştırma tam eşleşmeli, tur 3'te sertleştirildi) | — | — | bakıldı, değişiklik yok |
+
+### Kanıt (dosya:satır, gözlenen → beklenen)
+
+- **#1:** `scripts/verify-indexing.mjs` — `checkPages` içinde `xRobotsTag: null`
+  sabitti; `fetchText` yalnız `{status, body, error}` döndürüyordu. Yalnız
+  `X-Robots-Tag: noindex` gönderen bir sayfa yeşil geçerdi. Artık başlık okunuyor,
+  `verdictForPage` saf fonksiyonu test ediliyor.
+- **#2:** `https://isbulkktc.com.evil.example/sitemap.xml` ve
+  `https://isbulkktc.com.au/sitemap.xml` `startsWith("https://isbulkktc.com")`
+  ile **true** dönüyordu → off-origin sitemap takip edilebilirdi. Tur 3 SPF
+  hatasıyla aynı sınıf.
+- **#3:** `<meta content="noindex" name="robots">` → `extractPageSignals`
+  `metaRobots=null`. HTML'de öznitelik sırası anlamsız.
+- **#4:** `callbackIsAllowed("https://isbulkktc.com", "https://isbulkktc.com")`
+  → **true**. Supabase dokümanı: *"The separator characters in a URL are defined
+  as `.` and `/`"*; GoTrue kaynağı `glob.MustCompile(uri, '.', '/')`
+  (`supabase/auth` `internal/conf/configuration.go`). Çıplak origin
+  `/auth/callback`'i kapsamaz → yanlış "sağlıklı".
+
+### Canlı ölçüm (değişmedi)
+
+```
+node scripts/verify-indexing.mjs   → 0 fail / 0 warn / 0 skip
+node scripts/verify-deliverability.mjs
+  WARN SPF   kök kayıt göndereni yetkilendirmiyor; Return-Path alt alanı yetkili + DMARC hizalı
+  PASS SPF   send.isbulkktc.com (Return-Path) yetkili
+  PASS DKIM  resend._domainkey, 216 karakter
+  WARN DMARC p=none (yalnız izler, uygulamaz)
+  PASS MX    3 Cloudflare route
+  WARN Blocklists surbl/spamcop temiz; spamhaus sorgulanamadı (datacenter IP)
+  FAIL Resend anahtar `re_` ile başlamıyor (len 36) → #186 (insan)
+```
+
+Katman 2/3 (gerçek gönderim, spam skoru) hâlâ #186 + #170 yüzünden ölçülemez;
+doğrulanmamış iddia yok. `/en|/de|/ru/jobs/<slug>` **200 + geri canonical**
+(soft-duplicate birleşme) doğrulandı.
+
+Testler: `scripts/verify-indexing.test.mjs` 16/16, `scripts/verify-auth-config.test.mjs`
+3/3. Kapılar: lint/typecheck/check:frontend-source ✅, `test:unit` 589 (585 pass,
+0 fail, 4 todo), `test:security` 77 (75 pass, 0 fail, 2 todo).
