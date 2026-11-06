@@ -12,6 +12,8 @@ export { BRAND, escapeHtml, LOGO_URL } from "./email-layout.ts";
 import { renderEmailLayout } from "./email-layout.ts";
 
 export type BrandedEmailOptions = {
+  /** Recipient locale; drives `<html lang>`/`dir`. Defaults to `tr`. */
+  locale?: string;
   preheader: string;
   heading: string;
   body: string;
@@ -22,9 +24,10 @@ export type BrandedEmailOptions = {
 };
 
 export function renderBrandedEmail(options: BrandedEmailOptions): string {
-  const { preheader, heading, body, ctaLabel, ctaUrl, footerNote, siteUrl } =
+  const { preheader, heading, body, ctaLabel, ctaUrl, footerNote, siteUrl, locale } =
     options;
   return renderEmailLayout({
+    locale,
     preheader,
     heading,
     introHtml: body,

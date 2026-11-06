@@ -36,17 +36,21 @@ function listHtml(items: string[]): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0;">${rows}</table>`;
 }
 
-function render(ctx: SiteContext, build: (copy: ReturnType<typeof getEmailCopy>) => RenderedEmail): RenderedEmail {
+function render(
+  ctx: SiteContext,
+  build: (copy: ReturnType<typeof getEmailCopy>, locale: EmailLocale) => RenderedEmail,
+): RenderedEmail {
   const locale: EmailLocale = resolveEmailLocale(ctx.locale);
-  return build(getEmailCopy(locale));
+  return build(getEmailCopy(locale), locale);
 }
 
 export function renderAuthConfirmation(input: SiteContext & {
   email: string;
   confirmationUrl: string;
 }): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const opts = {
+      locale,
       preheader: copy.auth.confirmationLead,
       heading: copy.auth.confirmationHeading,
       introHtml: paragraph(
@@ -70,8 +74,9 @@ export function renderAuthRecovery(input: SiteContext & {
   email: string;
   confirmationUrl: string;
 }): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const opts = {
+      locale,
       preheader: copy.auth.recoveryLead,
       heading: copy.auth.recoveryHeading,
       introHtml: paragraph(`${copy.auth.recoveryLead} (${input.email})`),
@@ -92,8 +97,9 @@ export function renderAuthRecovery(input: SiteContext & {
 export function renderAuthReauthentication(input: SiteContext & {
   token: string;
 }): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const opts = {
+      locale,
       preheader: copy.auth.reauthenticationLead,
       heading: copy.auth.reauthenticationHeading,
       introHtml: paragraph(copy.auth.reauthenticationLead),
@@ -113,8 +119,9 @@ export function renderAuthReauthentication(input: SiteContext & {
 export function renderAuthPasswordChanged(input: SiteContext & {
   email: string;
 }): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const opts = {
+      locale,
       preheader: copy.auth.passwordChangedLead,
       heading: copy.auth.passwordChangedHeading,
       introHtml: paragraph(`${copy.auth.passwordChangedLead} (${input.email})`),
@@ -137,7 +144,7 @@ export function renderWelcomeEmail(input: SiteContext & {
   name?: string | null;
   actionUrl: string;
 }): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const isCandidate = input.audience === "candidate";
     const subject = isCandidate ? copy.welcome.candidateSubject : copy.welcome.employerSubject;
     const heading = isCandidate ? copy.welcome.candidateHeading : copy.welcome.employerHeading;
@@ -148,6 +155,7 @@ export function renderWelcomeEmail(input: SiteContext & {
       ? `<p style="margin:0 0 12px;">${escapeHtml(input.name.trim())},</p>`
       : "";
     const opts = {
+      locale,
       preheader: lead,
       heading,
       introHtml: `${greeting}${paragraph(lead)}`,
@@ -173,7 +181,7 @@ export function renderNotificationEmail(input: SiteContext & {
   status?: string | null;
   dashboardUrl: string;
 }): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const status = input.status ? copy.statuses[input.status] : undefined;
     let subject: string;
     let lead: string;
@@ -195,6 +203,7 @@ export function renderNotificationEmail(input: SiteContext & {
     }
 
     const opts = {
+      locale,
       preheader: lead,
       heading: subject,
       introHtml: `${paragraph(lead)}${strongLine(input.jobTitle)}`,
@@ -222,11 +231,12 @@ export type FeedbackInput = {
 };
 
 export function renderFeedbackAcknowledgement(input: FeedbackInput): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const greeting = input.name?.trim()
       ? `<p style="margin:0 0 12px;">${escapeHtml(input.name.trim())},</p>`
       : "";
     const opts = {
+      locale,
       preheader: copy.feedback.receivedLead,
       heading: copy.feedback.receivedHeading,
       introHtml: `${greeting}${paragraph(copy.feedback.receivedLead)}`,
@@ -243,7 +253,7 @@ export function renderFeedbackAcknowledgement(input: FeedbackInput): RenderedEma
 }
 
 export function renderFeedbackTeamEmail(input: FeedbackInput): RenderedEmail {
-  return render(input, (copy) => {
+  return render(input, (copy, locale) => {
     const rows: string[] = [];
     const push = (label: string, value: string) => {
       rows.push(
@@ -259,6 +269,7 @@ export function renderFeedbackTeamEmail(input: FeedbackInput): RenderedEmail {
     push(copy.labels.messageLabel, escapeHtml(input.message).replace(/\n/g, "<br>"));
 
     const opts = {
+      locale,
       preheader: copy.feedback.teamHeading,
       heading: copy.feedback.teamHeading,
       introHtml: paragraph(copy.feedback.receivedLead),
@@ -287,6 +298,7 @@ export function renderJobPublishedEmail(input: SiteContext & {
   const extras = getEmailCopyExtras(input.locale);
   const copy = getEmailCopy(input.locale);
   const opts = {
+    locale: resolveEmailLocale(input.locale),
     preheader: extras.jobPublished.lead,
     heading: extras.jobPublished.heading,
     introHtml: `${paragraph(extras.jobPublished.lead)}${strongLine(input.jobTitle)}`,
@@ -320,6 +332,7 @@ export function renderResumeReceivedEmail(input: SiteContext & {
     ? `<p style="margin:0 0 12px;">${escapeHtml(input.name.trim())},</p>`
     : "";
   const opts = {
+    locale: resolveEmailLocale(input.locale),
     preheader: lead,
     heading,
     introHtml: `${greeting}${paragraph(lead)}`,
@@ -353,6 +366,7 @@ export function renderSalesAcknowledgement(input: SalesLeadInput): RenderedEmail
     ? `<p style="margin:0 0 12px;">${escapeHtml(input.contactName.trim())},</p>`
     : "";
   const opts = {
+    locale: resolveEmailLocale(input.locale),
     preheader: extras.sales.ackLead,
     heading: extras.sales.ackHeading,
     introHtml: `${greeting}${paragraph(extras.sales.ackLead)}`,
@@ -391,6 +405,7 @@ export function renderSalesTeamEmail(input: SalesLeadInput): RenderedEmail {
   }
 
   const opts = {
+    locale: resolveEmailLocale(input.locale),
     preheader: extras.sales.teamHeading,
     heading: extras.sales.teamHeading,
     introHtml: paragraph(extras.sales.ackLead),
@@ -437,6 +452,7 @@ export function renderEngagementEmail(input: SiteContext & {
     })
     .join("");
   const opts = {
+    locale: resolveEmailLocale(input.locale),
     preheader: extras.engagement.lead,
     heading: extras.engagement.heading,
     introHtml: `${greeting}${paragraph(extras.engagement.lead)}`,

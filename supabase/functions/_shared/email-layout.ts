@@ -42,6 +42,26 @@ function isSafeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+/**
+ * Right-to-left locales among the six the app ships. Only `fa` is RTL, so the
+ * test is an explicit set rather than a Unicode-range guess. Kept here (not
+ * imported from `@/i18n/routing`) because this module must stay globals-free
+ * and dependency-free so it runs unchanged inside the Deno Edge Function and
+ * the Node sender.
+ */
+const rtlLocales = new Set(["fa", "ar", "he", "ur"]);
+
+/** Normalises a locale tag (`tr-TR`, `EN`) to the `lang` attribute value. */
+function htmlLang(locale: string | undefined): string {
+  const normalized = (locale ?? "tr").trim().toLowerCase().replace(/_/g, "-");
+  const match = /^([a-z]{2,3})(?:-[a-z0-9]+)*$/.exec(normalized);
+  return match ? normalized : "tr";
+}
+
+function isRtlLocale(locale: string): boolean {
+  return rtlLocales.has(locale.split("-")[0] ?? "");
+}
+
 export type EmailSection = {
   heading: string;
   /** Pre-escaped HTML for the section body. */
@@ -51,6 +71,13 @@ export type EmailSection = {
 export type EmailButton = { label: string; url: string };
 
 export type EmailLayoutOptions = {
+  /**
+   * Recipient locale (BCP-47), e.g. `tr`, `en`, `fa`. Drives `<html lang>` and
+   * `dir` so a screen reader announces the message in the right language
+   * (WCAG 3.1.1) and RTL copy (`fa`) aligns correctly. Defaults to `tr` when
+   * omitted, which keeps legacy callers working.
+   */
+  locale?: string;
   /** Inbox preview text; hidden in the body but read by most clients. */
   preheader: string;
   /** Page title; also the `<title>`. */
@@ -165,8 +192,11 @@ export function renderEmailLayout(options: EmailLayoutOptions): string {
     noteBlock(options.note),
   ].join("");
 
+  const lang = htmlLang(options.locale);
+  const dir = isRtlLocale(lang) ? "rtl" : "ltr";
+
   return `<!DOCTYPE html>
-<html lang="tr">
+<html lang="${lang}" dir="${dir}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -201,7 +231,7 @@ ${preheaderBlock(options.preheader)}
 <td style="vertical-align:middle;">
 <img src="${LOGO_URL}" width="56" height="33" alt="" style="display:block;border:0;outline:none;text-decoration:none;" />
 </td>
-<td style="vertical-align:middle;padding-left:14px;">
+<td style="vertical-align:middle;padding-${dir === "rtl" ? "right" : "left"}:14px;">
 <div style="color:${BRAND.white};font-size:22px;font-weight:700;letter-spacing:-0.4px;line-height:1.1;">${BRAND.name}</div>
 <div style="color:rgba(255,255,255,0.85);font-size:12.5px;margin-top:3px;">${BRAND.tagline}</div>
 </td>
