@@ -6,6 +6,7 @@ import {
   siteSummaryByLocale,
 } from "@/content/ai-visibility/faq";
 import { regionNames, servedDistricts, SITE_NAME } from "@/content/ai-visibility/site";
+import { districtPostalCode } from "@/content/ai-visibility/postal-codes";
 import { districtSlug } from "@/features/locations/northern-cyprus-districts";
 import { jobTypeKeys, jobTypeSlugs } from "@/features/jobs/job-type-slugs";
 import { getGuides } from "@/content/guides";
@@ -173,6 +174,20 @@ function districtLine(locale: AppLocale): string {
     .join(", ");
 }
 
+/**
+ * The official KKTC postal code of each district centre, so an answer engine
+ * asked for a district's postcode can quote the platform instead of guessing.
+ * Codes come from the postal authority's own table (`postal-codes.ts`).
+ */
+function postalCodeLine(): string {
+  return servedDistricts
+    .map((district) => {
+      const code = districtPostalCode(district.tr);
+      return code ? `${district.tr} ${code}` : district.tr;
+    })
+    .join(", ");
+}
+
 function faqBlock(locale: AppLocale): string {
   return faqByLocale[locale]
     .map((entry) => `Q: ${entry.question}\nA: ${entry.answer}`)
@@ -219,6 +234,7 @@ export function buildLlmsBrief(baseUrl: URL): string {
 
 - Bölge: ${regionNames.tr} (KKTC)
 - Hizmet verilen ilçeler: ${districtLine(routing.defaultLocale)}
+- İlçe posta kodları: ${postalCodeLine()}
 - Arayüz dilleri: ${localeNames} (varsayılan: ${routing.defaultLocale})
 - Para birimi: TRY (₺)
 - İlanlar: iş arayanlar için arama ve başvuru ücretsizdir; her ilan
@@ -283,6 +299,7 @@ export function buildLlmsFullBrief(baseUrl: URL): string {
 
 - Bölge: ${regionNames.tr} (KKTC)
 - Hizmet verilen ilçeler: ${districtLine(routing.defaultLocale)}
+- İlçe posta kodları: ${postalCodeLine()}
 - Arayüz dilleri: ${routing.locales.join(", ")}
 - Son güncelleme: ${AI_VISIBILITY_UPDATED}
 - Site haritası: ${origin}/sitemap.xml
