@@ -7,6 +7,7 @@ const lane = {
   brief: "00-orchestration",
   branch: "lane/infra",
   label: "agent:infra",
+  laneLabel: "lane:infra",
   skills: ["github-actions", "code-review"],
 };
 
@@ -15,7 +16,26 @@ test("the kickoff names the lane, its brief, its branch and its issue label", ()
   assert.match(prompt, /Lane: infra\./);
   assert.match(prompt, /docs\/lanes\/00-orchestration\.md/);
   assert.match(prompt, /lane\/infra/);
-  assert.match(prompt, /gh issue list --state open --label agent:infra/);
+  assert.match(prompt, /gh issue list --state open --label lane:infra/);
+});
+
+// The bug this guards: the prompt asked for the broad label (`agent:test`),
+// which `qa`, `guvenlik` and `verify` all share, so one query returned the same
+// issue to several lanes and they duplicated the work. `hasLabelledWork` matches
+// the precise `lane:<name>` label first; the prompt must agree with that gate.
+test("the kickoff queries the precise lane label, not the shared broad one", () => {
+  const prompt = kickoff("guvenlik", {
+    ...lane,
+    label: "agent:test",
+    laneLabel: "lane:guvenlik",
+  });
+  assert.match(prompt, /--label lane:guvenlik/);
+  assert.doesNotMatch(prompt, /--label agent:test/);
+});
+
+test("a lane with no precise label falls back to its broad label", () => {
+  const prompt = kickoff("infra", { ...lane, laneLabel: undefined });
+  assert.match(prompt, /--label agent:infra/);
 });
 
 // The bug this guards: spawn-lanes.mjs and lane-autopilot.mjs each built the
@@ -41,4 +61,15 @@ test("the retry hint quotes the budget and carries the previous error", () => {
 test("a first attempt carries no retry hint", () => {
   const prompt = kickoff("infra", lane, { maxAttempts: 3 });
   assert.doesNotMatch(prompt, /ÖNCEKİ DENEME/);
+});
+
+// The bug this guards (#304): parallel lanes push while `main` moves, and a PR
+// whose head conflicts with main gets no CI run at all — GitHub fires no
+// check-run for a CONFLICTING head, so `gh pr checks` shows only an unrelated
+// failing check and the PR looks unverified rather than "never triggered".
+// Telling every lane to rebase before opening the PR is what keeps the gate on.
+test("the kickoff tells the lane to rebase onto origin/main before opening the PR", () => {
+  const prompt = kickoff("infra", lane);
+  assert.match(prompt, /git fetch origin main && git rebase origin\/main/);
+  assert.match(prompt, /CONFLICTING/);
 });

@@ -106,3 +106,29 @@ Bu dosya + `scripts/system-health.mjs` + `scripts/lane-autopilot.mjs` +
 `docs/lanes/*` = operatörün tamamı. Yeni bir operatör lane'i başlatmak için:
 brief olarak bu dosyayı ver; repodaki araçlar ve brief'ler kalıcıdır, sandbox
 hafızası değildir. **Bilgi repoda yaşar, konuşmada değil.**
+
+## Tur notları — mikro-denetim (2026-11-06)
+
+Sahip olunan beş dosya (`docs/OPERATOR.md`, `docs/lanes/15-operator.md`,
+`scripts/system-health.mjs`, `scripts/lane-autopilot.mjs`,
+`scripts/lane-kickoff.mjs`) AUDIT.md boyutlarıyla tarandı. Bulgular:
+
+| # | Dosya:satır | Gözlenen | Beklenen | Etki | Durum |
+|---|---|---|---|---|---|
+| 1 | `scripts/system-health.mjs:108` | Yalnız `isbulkktc CI` adlı workflow'u `--branch main` ile sorguluyordu; #375 o workflow'un `push` tetikleyicisini kaldırdığı için sorgu **eski** koşuyu döndürüyor ve "yeşil" diyordu | Varsayılan dalda koşan **her** workflow'un en yeni koşusunu oku | `main`'de kırmızı olan `Verify production deployment` görünmezdi; harness "sağlıklı" derken kapı kırıktı (aynı "gösterge yalan söylüyor" sınıfı) | düzeltildi |
+| 2 | `scripts/lane-autopilot.mjs:638-654` | "held runs" onay bloğu **birebir iki kez**; `node scripts/approve-pending-runs.mjs` her pass'te iki kez çalışıyordu (#354) | Tek çağrı | `gh` API trafiği 2×; biri düzenlenip diğeri unutulursa sessiz sapma | düzeltildi |
+| 3 | `scripts/lane-autopilot.mjs:129` | `gh pr list` çağrısı `mergeable` alanını istemiyordu; `pr.mergeable` daima `undefined` idi, satır 234'teki çakışma koruması **ölü koddu** | `mergeable` iste; `CONFLICTING` PR'ı auto-merge'e gönderme | Çakışan PR sessizce auto-merge'e girip `BLOCKED` kalabilirdi; #304'ün "görünmez kapı" sınıfı | düzeltildi |
+| 4 | `scripts/lane-kickoff.mjs` | Prompt lane'e PR açmadan önce rebase etmesini söylemiyordu (#304) | `git fetch origin main && git rebase origin/main`; çakışırsa dur | Çakışan (CONFLICTING) PR'a GitHub **hiç** CI koşusu açmaz; PR doğrulanmamış kalır | düzeltildi |
+| 4b | `scripts/lane-kickoff.mjs:52` | Prompt işi **geniş** etiketle arattırıyordu (`--label ${lane.label}`, ör. `agent:test`) | Dar etiketi kullan (`lane:guvenlik`); `hasLabelledWork` zaten önce dar eşleşiyor | `qa`/`guvenlik`/`verify` üçü de `agent:test` taşır → tek sorgu aynı issue'yu birkaç lane'e verir, iş kopyalanır | düzeltildi |
+| 5 | `scripts/lane-autopilot.mjs:174` | Yorum `lane:qa`'nın `infra` ile `agent:test` paylaştığını söylüyordu | `infra`'nın etiketi `agent:infra`; `agent:test`'i paylaşan `guvenlik` | Yanıltıcı yorum → yanlış teşhis | düzeltildi |
+| 6 | `docs/OPERATOR.md` ↔ `docs/lanes/15-operator.md` | İki dosya bayt-bayt aynı (aynı işi yapan iki yer) | Tek kanonik brief | Biri güncellenip diğeri unutulursa sapma (AUDIT "tutarlılık" boyutu) | birleştirildi |
+| 7 | `scripts/lanes.json` (`brief: "OPERATOR"`) | Kickoff `docs/lanes/OPERATOR.md` okutuyor; dosya **yok** | `brief: "15-operator"` | Operatör lane'i var olmayan dosyayı okumaya çalışır | devir → LANE-INFRA |
+| 8 | `.github/workflows/verify-production-deployment.yml` | `main` ilerlerken koşu `--tip`'i başta bir kez okuyor; koşu sürerken yeni commit gelince `expected` eskiyor ve kırmızı düşüyor | `--tip`'i yeniden oku ya da superseded say | `main`'de kırmızı kapı gürültüsü (3/5 koşu) | devir → LANE-TESLİMAT |
+
+**Doğrulama.** `scripts/system-health.test.mjs` **7/7** (yeni),
+`scripts/lane-kickoff.test.mjs` **9/9**, `test:unit` **737 geçti / 0 kaldı**,
+`lint`/`typecheck`/`check:frontend-source` temiz. Mutasyon kanıtı: eski sorgu
+(`--workflow "isbulkktc CI"`) "yeşil" derken yeni sorgu (dal) `Verify production
+deployment`'ı kırmızı buldu.
+
+**Bakılmayan dosya yok.** Sahip olunan beş dosyanın tamamı okundu.

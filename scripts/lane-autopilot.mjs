@@ -130,7 +130,11 @@ function openPullRequests() {
     '--state',
     'open',
     '--json',
-    'number,headRefName,mergeStateStatus,labels,isDraft,autoMergeRequest',
+    // `mergeable` must be requested explicitly: `gh pr list` omits it otherwise,
+    // so the conflict guard below read `undefined === 'CONFLICTING'` and never
+    // fired. `mergeStateStatus` alone is not a substitute — it reports BLOCKED
+    // for a conflict and for a missing required check alike.
+    'number,headRefName,mergeStateStatus,mergeable,labels,isDraft,autoMergeRequest',
     '--limit',
     '50',
   ]);
@@ -175,8 +179,8 @@ function handoffIssues() {
  * Every open issue, so a lane is only started when one names it.
  *
  * Fetched once and reused for all lanes: the per-lane decision needs the whole
- * set (an issue labelled `lane:qa` must not also start `infra`, which shares the
- * broad `agent:test` label). A single list keeps the pass to one `gh` call.
+ * set (an issue labelled `lane:qa` must not also start `guvenlik`, which shares
+ * the broad `agent:test` label). A single list keeps the pass to one `gh` call.
  */
 function openIssues() {
   const raw = gh([
@@ -626,24 +630,6 @@ async function main() {
   if (stalled.length > 0) {
     console.log(`\nSTALLED PRs (need a human): ${stalled.length}`);
     for (const s of stalled) console.log(`  #${s.number} — ${s.reason}`);
-  }
-
-  // A bot-opened PR has its checks held at action_required until a human
-  // approves the run. Without this the PR shows BLOCKED forever and the lane
-  // that opened it looks idle — #178 had no CI at all. Approving is safe: it
-  // starts the run, it does not make a failure pass.
-  if (!dryRun) {
-    try {
-      const approved = execFileSync('node', ['scripts/approve-pending-runs.mjs'], {
-        encoding: 'utf8',
-        env: process.env,
-      }).trim();
-      if (!approved.includes('no runs are waiting')) {
-        console.log(`\nheld runs:\n${approved.split('\n').map((l) => `  ${l}`).join('\n')}`);
-      }
-    } catch (error) {
-      console.error(`  could not approve held runs: ${String(error.message).split('\n')[0]}`);
-    }
   }
 
   // A bot-opened PR has its checks held at action_required until a human
