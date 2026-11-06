@@ -2571,3 +2571,165 @@ API → 500), N-04 (robots boşluğu), N-05 (`tr` çelişkisi — devir).
 5. **G-01:** Scrape Shield → Email Obfuscation OFF (hâlâ açık, `/`'da 1 eşleşme).
 6. **F-08:** Vercel Deployment Protection aç.
 7. **#227:** Resend DKIM'i 2048-bit'e çevir (DKIM panel/DNS yarısı bu lane).
+
+### Edge mikro-denetim tur 27 — `%2F` mekanizması + kural-bazlı WAF asimetrisi + kapalı kayıtlar (2026-11-06)
+
+Brief 4 (WAF bypass) ve AUDIT "girdi/yönlendirme" boyutları derinleştirildi. Tur
+26'nın **N-01**'i mekanizma düzeyinde kesinleştirildi; tur 26'nın "üç kategori de
+atlanıyor" özeti **fazla geniş** çıktı ve düzeltildi. WAF dışı halkalar
+(DNS/TLS/cache/bot) tazelendi; #163'ün CF halkası **kapalı kayıt** olarak ölçüldü.
+
+#### N-01r — `%2F` kaçışının kesin mekanizması (tur 26 N-01 düzeltmesi)
+
+**Mekanizma (resmî dokümanla doğrulandı):** CF, WAF kural değerlendirmesinden
+**önce** RFC 3986 normalizasyonu uygular; bu, **yalnız unreserved** karakterleri
+çözer (`a-z A-Z 0-9 - . _ ~`). **Rezerve** karakterler — özellikle `/` — `%2F`
+kodlu hâlde **kalır** (CF "How URL normalization works"). Origin (Vercel/Next)
+ise `%2F`'ı **`/`'a çözer**. Sonuç: literalinde `/` bulunan bir kural, saldırgan
+o `/`'ı `%2F` yazınca **eşleşmez**, ama origin yolu doğru rotaya çözer.
+
+**Kesin kanıt (bilinen rotayla):**
+
+```
+/api/build-info      -> 200 application/json (80 B)
+/api%2Fbuild-info    -> 200 application/json (80 B, AYNI gövde)
+/api%252Fbuild-info  -> 404 (çift-kodlama çözülmez)
+```
+
+`/api%2Fbuild-info` CF'i **atlıyor** (`x-vercel-id` dolu; `cf-ray` var ama kural
+tetiklenmiyor) ve origin gerçek rotayı sunuyor.
+
+**Kural-bazlı asimetri (tur 26'nın "üç kategori de" iddiası düzeltildi).** Kaçış,
+kuralın **literalinde `/` olmasına** bağlı:
+
+| Kural literali (tur 26) | Düz yol | `%2F` kaçışı | Sonuç |
+|---|---|---|---|
+| `/api/devtools/` | 403 | `/api/devtools%2Fx` → **404 origin** | ✅ atlanıyor |
+| VCS/dotfile/secret (`/.git`, `/.env`) | 403 | `/.git%2Fconfig` → **404 origin** | ✅ atlanıyor |
+| CMS/scanner (`/wp-admin`, `/phpmyadmin`) | 403 | `/wp-admin%2Fx` → **403 CF** | ❌ bloklu kalıyor |
+
+Neden: `/api/devtools/` ve `/.git/` literallerinde `/` var → saldırgan onu `%2F`
+yapar → kural tutmaz. `/wp-admin` ve `/phpmyadmin` literallerinde `/` **yok** →
+`%2F` eklemek yolu değiştirmez → kural yine tutar. Yani tur 26'nın "hepsi tek
+kategori" özeti fazla geniş; gerçek sınıf **"literalinde `/` olan kurallar"**.
+
+**Ek kaçış biçimleri (16 varyant test edildi; ayırt edici olanlar):**
+
+| Girdi | Kod | Katman | Not |
+|---|---|---|---|
+| `/api/devtools/x` | 403 | CF | taban |
+| `/api/devtools%2Fx` | 404 | origin | `%2F` |
+| `/api/devtools/x%09x` | 403 | CF | `%09` (kodlu TAB) yol ayracı değil |
+| `/api/devtools/x;.js` | 403 | CF | `;` ayracı kuralı bozmuyor |
+| `/API/DEVTOOLS/x` | 403 | CF | `lower()` çalışıyor |
+| `/api//devtools/x` | 403 | CF | `//` baseline normalizasyon |
+| `/api/%2E%2E/devtools/x` | 404 | origin | dot-segment (`%2E` unreserved → çözülür) |
+| `/.git%2Fconfig` | 404 | origin | `%2F` |
+
+**Düzeltme (değişmedi, onay bekliyor):** kuralları `url_decode(...)` üzerinden kur
+— `url_decode` `%2F`'ı `/`'a çözer, kodlanmış varyant artık eşleşir. CF Rules
+dilinde `url_decode` **mevcut** (resmî fonksiyon listesi). Ayrıca
+**`Normalize incoming URLs` ayarı bu boşluğu KAPATMAZ** (rezerve `/` çözülmez) —
+tur 26 **N-02 doğrulandı**.
+
+**Yeni kayıt (N-06):** aynı mekanizma VCS yollarında da (`/.git%2Fconfig`) çalışıyor;
+**ama** `wp-admin`/`phpmyadmin`/`.env` bloklu kaldığından genel bir "WAF kapalı"
+durumu yok. Sınıf adı **"`/`-içeren literaller"**; `%09` gibi kodlu ayraçlar yol
+ayracı olmadığından kuralı bozmuyor.
+
+#### N-03r — `%2F` API etkisi (tur 26 N-03 tazelendi)
+
+| Yol | Düz | `%2F` kodlu | Katman |
+|---|---|---|---|
+| `/api/build-info` | 200 JSON | **200 JSON** (aynı) | origin (WAF-bloklu değil) |
+| `/api/qr` | 200 | **500** | origin |
+| `/api/push/subscriptions` | 405 | **500** | origin |
+| `/api/email/unsubscribe` | 400 | **500** | origin |
+
+Origin (alias) da aynı → **CF değil, repo-tarafı** (Next.js `%2F` içeren yolu
+rotalayamıyor). Sızıntı yok (jenerik `/500` gövdesi). Sahip: `src/app/api/**` (devir issue **#441**, `lane:infra`+`agent:handoff`)
+(LANE-URUN/GÜVENLİK) — bu lane düzeltmez.
+
+#### Kapalı kayıt — #163 CF halkası (bulunabilirlik)
+
+#163'ün **Cloudflare** halkası yeniden ölçüldü; **kopuk değil**:
+
+- **Bot engeli yok:** Googlebot/bingbot/YandexBot `/` → **200**, `cf-mitigated` yok.
+- **Sitemap tutarlı:** 207 `<loc>`'un **tamamı** `https://isbulkktc.com` host'unda
+  (`www` karışıklığı yok); 75 `<lastmod>`.
+- **Doğrulama etiketi var:** `google-site-verification` **gerçek sayfalarda**
+  (`/`, `/en`, `/de`, `/en/jobs`) mevcut. (`/en/` → 308 `/en`; etiket **hedefte**
+  var — `/en/`'de görünmemesi yanıltıcı değil.)
+- **robots.txt** yalnız `/api/`, `/auth/` ve **varsayılan-olmayan** dilleri listeler.
+
+**Gerçek kopuk halka LANE-SEO'da ve zaten açık:** Bing mülk doğrulaması yok —
+`BingSiteAuth.xml` **404**, `msvalidate.01` meta **yok**, Bing DNS TXT **yok** →
+**#173** (`lane:seo`+`agent:handoff`). Bu lane yeni issue açmıyor (mükerrer olur).
+
+#### Kapalı kayıt — sertifika / DNSSEC / CAA / preload
+
+- **Sertifika CA'sı `Let's Encrypt`** (`CN=YE2`, 2026-09-19 → 2026-12-18) → apex
+  CAA `issue "letsencrypt.org"` ile **uyumlu**.
+- **DNSSEC:** DoH `AD=true` → imzalı ve doğrulanmış.
+- **CAA:** apex'te 5 `issue` + 5 `issuewild`; `www` için ayrı CAA **yok** — RFC 8659
+  gereği CAA araması `www.isbulkktc.com`'dan üste (`isbulkktc.com`) yapıldığından
+  apex kaydı `www`'yı da kapsar → **eksik değil**.
+- **HSTS preload:** `hstspreload.org/api/v2/status` → **`pending`** (henüz listeye
+  alınmamış, başvuru sürüyor) → HSTS `max-age` **12 ayın altına düşürülmemeli**
+  (asgari 1 yıl), aksi hâlde başvuru reddedilir. Bu, H-01r seçeneklerinden
+  "CF HSTS'i kapat"ı **preload başvurusuyla çelişkili** kılar.
+
+#### Cache / poisoning tazelemesi
+
+- `%2F` yolları edge'de **cache'lenmiyor** (`cf-cache-status: DYNAMIC`/`BYPASS`;
+  `private`/`no-store`) → cache-poisoning yüzeyi yok.
+- Cache-deception (`/jobs/x.css`, `/profile/dashboard/x.css`, `%2F` varyantları) →
+  **404 `BYPASS`**, `private` → temiz.
+- `cf-cache-status` bu turda `REVALIDATED` (önceden `HIT`/`MISS`); **başlıklar**
+  (H-02 kanıtı) değişmedi: `/robots.txt` `2628000`, `/sitemap.xml` `3600`,
+  `/images/*` `2628000`.
+
+#### Nokta-noktasına denetim (brief 1–7) — tur 27 durumu
+
+| # | Alan | Ölçüm | Durum |
+|---|---|---|---|
+| 1 | DNS | apex+`www` CF anycast (`104.21.29.3`,`172.67.171.53`), proxied; `www`→**308** apex; NS `lex`/`serenity`; SPF/DKIM/DMARC/CAA/DNSSEC sabit | ✔ |
+| 2 | SSL/TLS | Let's Encrypt (CAA uyumlu), TLS 1.2+1.3, `http`→**301**, HSTS+`includeSubDomains`+`preload`; preload **`pending`**; **H-01r** (12 ay tavanı) | ⚠️ H-01r |
+| 3 | Cache | statik `immutable`; dinamik `private, no-store`; **H-02** açık; `%2F` yolları cache'lenmiyor | ⚠️ H-02 |
+| 4 | WAF | saldırı yolları **403** (16 varyant matris); meşru **16/16 yanlış pozitif yok** (15×200; `/profile/dashboard` 307 `/login` beklenen); **N-01r** (`/`-literalli kurallar `%2F` ile atlanıyor); `wp-admin` bloklu | ⚠️ N-01r |
+| 5 | Bot | arama botları 200, `cf-mitigated` yok; GH-runner challenge bilinçli trade-off | ✔ |
+| 6 | Rate limit | tek Free kuralı leak-check'te; auth brute-force tahsisi onay bekliyor (F-26 kapalı) | ℹ️ |
+| 7 | Analytics/logpush | `CF_API_TOKEN` yok → zone API okunamadı; gereken scope: `zone.analytics.read` | ⚠️ token |
+
+#### Bakılmayan (dürüst işaretleme)
+
+- **CF zone API** (`CF_API_TOKEN` yok): WAF ruleset **ifadesi** panelden okunamadı →
+  N-01r'in mevcut kural metniyle birebir eşleştiği doğrulanamaz (yalnız davranış
+  ölçüldü).
+- **IPv6 yolu:** sandbox'ta v6 yok (yalnız DoH AAAA).
+- **Gerçek tarayıcı:** HSTS geçiş penceresi sürülmedi.
+- **`Authentication-Results`:** #170 için hâlâ ölçülemedi (posta teslimi).
+- **Google/Bing/Yandex endeksi:** arama API'si yok → `site:` sayıları ölçülemedi
+  (LANE-SEO).
+
+#### Drift (tur 27)
+
+**Yeni:** N-01r (mekanizma + kural-bazlı asimetri), N-06 (`/`-literalli kurallar sınıfı).
+**Düzeltildi:** tur 26 N-01'in "üç kategori de" iddiası → "literalinde `/` olan
+kurallar"; N-03 tazelendi.
+**Kapalı kayıt:** #163 CF halkası (temiz), sertifika/DNSSEC/CAA (temiz), HSTS
+preload `pending`.
+**Açık (değişmedi):** H-01r, H-02, N-01r, R-01, G-01, F-08, SR-01.
+**Devir:** N-05 → #437 (açık); N-03 → `src/app/api/**`.
+
+#### Sahibin (CF paneli) yapması gerekenler (tur 27 güncel)
+
+1. **N-01r (orta):** `/`-içeren tüm WAF kurallarını `url_decode(http.request.uri.path)`
+   üzerinden kur (`contains`/`in`/`lower`; `matches` Free'de yok). **Yıkıcı → onay.**
+2. **H-01r:** HSTS 2 yıla hizalanamaz (1–12 ay). Preload **`pending`** olduğundan
+   "CF HSTS'i kapat" başvuruyu riske atar → origin'i 12 aya indir **veya** bırak.
+3. **H-02:** Browser Cache TTL = `Respect Existing Headers`.
+4. **R-01:** trailing-dot apex → 301/308.
+5. **G-01:** Email Obfuscation OFF.
+6. **F-08:** Vercel Deployment Protection.
+7. **#227:** Resend DKIM 2048-bit.
