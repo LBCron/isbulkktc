@@ -170,6 +170,19 @@
         "code-review",
         "qa-changes"
       ]
+    },
+    "operator": {
+      "brief": "OPERATOR",
+      "branch": "lane/operator",
+      "wave": 0,
+      "label": "agent:infra",
+      "laneLabel": "lane:operator",
+      "scope": "sistem bekçisi: kota, tıkanıklık, israf, döngü, merge kuyruğu, harness",
+      "skills": [
+        "github-actions",
+        "code-review",
+        "qa-changes"
+      ]
     }
   },
   "maxReusesPerConversation": 2,
