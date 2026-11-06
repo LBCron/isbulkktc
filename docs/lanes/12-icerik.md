@@ -477,13 +477,15 @@ haritası üzerinde çalışır, `toLocaleLowerCase("tr")`.)
 
 - Kapılar: lint ✅, typecheck ✅, check:frontend-source ✅, test:unit 705 ✔ / 0 ✖
   (4 `⚠` todo = #367 pini, bu lane'in dışı), test:security ✅, test:integration ✅.
-- **E2E çalıştırılmadı** — mikro-denetim kapsamı 4 statik kapı; ayrıca e2e pinleri
-  LANE-QA'nın dosyalarında (aşağıda devir).
+- **E2E (CI'da):** 1/4, 2/4 ✅; 3/4, 4/4 ❌ — kırmızı **yalnız** bayat pinlerden
+  (aşağıdaki devir). "Received" değeri yeni metni birebir doğruluyor; üretilen
+  içerik doğru.
 
 ### Devir (agent:handoff → LANE-QA)
 
-`tests/**` LANE-QA'nın (sahiplik tablosu); İÇERİK oraya yazmaz. 3 e2e pinini
-güncellemek gerekir (yoksa e2e kırmızı). Ayrıca bir TASARIM dosyası e2e pini var:
+`tests/**` LANE-QA'nın (sahiplik tablosu); İÇERİK oraya yazmaz. 4 e2e pinini
+güncellemek gerekir (yoksa e2e kırmızı). Hepsi `tests/**` altında LANE-QA'ya
+aittir (yalnız `accessibility.spec.ts` TASARIM'a bırakılmış):
 
 | Dosya:satır | Eski pin | Yeni değer |
 |---|---|---|
