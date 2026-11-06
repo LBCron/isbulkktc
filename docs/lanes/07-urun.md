@@ -726,3 +726,47 @@ test:integration (61, 0 fail)/build → hepsi yeşil. Canlıya dokunulmadı.
 `git checkout -B <yeni> origin/main` **commit'lenmemiş** düzenlemeleri yine sildi;
 bu turda düzenlemeleri tek tek yeniden uygulamak gerekti. Kural: branch açmadan
 önce commit'le.
+
+---
+
+## Tur 15 — etiketsiz kişisel-veri satırı headline oluyordu (#339)
+
+### Alınan issue
+Kuyrukta `lane:urun` + `agent:handoff` etiketli **#339** (#208 kalıntısı;
+LANE-QA buldu). Kaynak benim: `resume-parser.ts` `inferSections`.
+
+### Doğrulanan kanıt (gerçek parser, önce → sonra)
+```
+["AHMET YILMAZ","1995-2000 doğumlu"]                 headline="1995-2000 doğumlu"  -> {}
+["AHMET YILMAZ","Yazılım Geliştirici","1995 doğumlu"] description="1995 doğumlu"    -> headline="Yazılım Geliştirici"
+["AHMET YILMAZ","Lefkoşa, Girne"]                    headline="Lefkoşa, Girne"     -> location="Lefkoşa, Girne"
+["AHMET YILMAZ","Medeni Durum: Bekar"]               headline="Medeni Durum: Bekar"-> {}
+```
+
+### Kök neden
+Etiketli satırlar (`Adres: …`) #331'de kapılanmıştı, **etiketsiz** olanlar değil;
+`index === bodyStart` dalı ilk gövde satırını koşulsuz headline yapıyordu.
+
+### Düzeltme
+- `isPersonalDataLine` artık etiket ayrımı olmadan headline dalından **önce**.
+- `medeni` (gövde) + `marital`/`cinsiyet`/`uyruk`/`ehliyet` eklendi — **yalnız
+  kesin token'lar**; genel İngilizce sıfatlar (`single`, `married`) hariç
+  (sıradan CV cümlesi düşmesin).
+- `looksLikeDistrictList`: `"Lefkoşa, Girne"` headline değil **konum**.
+- Doğum satırı artık deneyim açıklamasına da sızmıyor.
+
+### Korunan sözleşmeler
+`parseResumeText("Alex Example\nalex@example.test")` → `{}`,
+`parseResumeText("Just a single short line")` → `{}`, ve gerçek unvan hâlâ
+çıkarılıyor (`"Kıdemli Yazılım Geliştirici"` → headline, `"Girne"` → location).
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (647, 0 fail)/test:security/
+test:integration (83, 0 fail)/build → hepsi yeşil. Canlıya dokunulmadı.
+
+### Not (LANE-QA)
+Issue'nun sözünü ettiği `todo` marker'ı (`"an unlabelled birth line does not
+become the headline"`) `origin/main`'de **yoktu** (4 `todo` var, bu değil).
+`tests/**` onların olduğu için eklemedim; kaynak düzeldiğine göre marker'ı
+ekleyip yeşil raporlayabilirler. #208'in kalan bayat `headline` assertion'ı da
+hâlâ onların kararında.
