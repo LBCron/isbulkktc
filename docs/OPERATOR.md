@@ -106,3 +106,16 @@ Bu dosya + `scripts/system-health.mjs` + `scripts/lane-autopilot.mjs` +
 `docs/lanes/*` = operatörün tamamı. Yeni bir operatör lane'i başlatmak için:
 brief olarak bu dosyayı ver; repodaki araçlar ve brief'ler kalıcıdır, sandbox
 hafızası değildir. **Bilgi repoda yaşar, konuşmada değil.**
+
+## Eşzamanlı PR sınırı (sahibin devrettiği görev)
+
+**Sorun (ölçüldü):** 5 açık PR × 6 job = 30 eşzamanlı CI job → runner kuyruğu.
+Bir E2E shard'ı **17 dakika** sürdü. Bekleme, PR sayısıyla doğru orantılı artıyor.
+
+**Görev:** autopilot'a `maxOpenPRs` sınırı ekle. Sınır dolduğunda yeni lane
+başlatma, mevcut PR'lar merge olana kadar bekle. `lanes.json`'a koy (tek kaynak).
+
+**Kanıt istenen:** sınır öncesi/sonrası ortalama CI bekleme süresi.
+
+**Neden operatörün işi:** bu bir alan işi değil, **sistem verimi** işi. Lane'ler
+kendi PR'larını üretir; kaç tanesinin aynı anda açık kalacağı sistem kararıdır.
