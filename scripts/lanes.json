@@ -186,5 +186,6 @@
     }
   },
   "maxReusesPerConversation": 2,
-  "requireLabelledWork": true
+  "requireLabelledWork": true,
+  "model": "openhands/deepseek-v4-pro"
 }
