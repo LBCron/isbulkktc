@@ -68,6 +68,13 @@ test("SPF ip entries are extracted with their family and mask stripped", () => {
     { family: 4, address: "10.0.0.1" },
   ]);
   assert.deepEqual(spfIpEntries("v=spf1 include:amazonses.com ~all"), []);
+  // Mechanism names are case-insensitive (RFC 7208 §4.6.1): `IP4:` is `ip4:`.
+  assert.deepEqual(spfIpEntries("v=spf1 IP4:52.3.252.119 ~all"), [
+    { family: 4, address: "52.3.252.119" },
+  ]);
+  assert.deepEqual(spfIpEntries("v=spf1 IP6:2001:db8::/32 ~all"), [
+    { family: 6, address: "2001:db8::" },
+  ]);
 });
 
 test("DNS result distinguishes an absent name from a failed query", () => {

@@ -155,11 +155,16 @@ function spfIncludesAmazonses(record) {
   return false;
 }
 
-/** `ip4:1.2.3.4` / `ip6:…` entries of an SPF record, with CIDR masks stripped. */
+/**
+ * `ip4:1.2.3.4` / `ip6:…` entries of an SPF record, with CIDR masks stripped.
+ * Mechanism names are case-insensitive (RFC 7208 §4.6.1), so `IP4:` is the same
+ * mechanism as `ip4:`; a case-sensitive match read such a record as having no
+ * sender authorisation.
+ */
 export function spfIpEntries(record) {
   const out = [];
   for (const token of String(record).trim().split(/\s+/)) {
-    const match = token.replace(/^[+\-~?]/, "").match(/^ip([46]):([0-9a-fA-F.:/]+)/);
+    const match = token.replace(/^[+\-~?]/, "").match(/^ip([46]):([0-9a-fA-F.:/]+)/i);
     if (!match) continue;
     out.push({ family: Number(match[1]), address: match[2].split("/")[0] });
   }

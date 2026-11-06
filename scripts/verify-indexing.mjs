@@ -111,17 +111,47 @@ function matchesRule(path, pattern) {
   return new RegExp(`^${source}${anchored ? "$" : ""}`).test(path);
 }
 
+/**
+ * Picks the rules that apply to `agent`. Google matches the *most specific*
+ * user-agent token — the longest substring of the crawler's name — and ignores
+ * the global `*` group whenever a specific one matches; when several groups
+ * share that most specific token, their rules are combined into one group.
+ * Taking the first match instead let a short earlier token (`bot`) shadow a
+ * longer later one (`googlebot`) and dropped the rules of a second group for
+ * the same agent. `*` and a trailing `*` are both ignored for matching, since
+ * Google treats `googlebot*` and `googlebot/1.2` as the token `googlebot`.
+ */
 function selectGroup(groups, agent) {
-  const wanted = agent.toLowerCase();
-  let star = null;
-  let specific = null;
+  const wanted = String(agent).toLowerCase();
+  const global = [];
+  let specific = [];
+  let bestTokenLength = -1;
   for (const group of groups) {
-    for (const token of group.agents) {
-      if (token === "*") star = group;
-      else if (wanted.includes(token) && !specific) specific = group;
+    let matchedLength = -1;
+    for (const rawToken of group.agents) {
+      // `googlebot*` and `googlebot/1.2` are both the token `googlebot`; only
+      // `*` alone is the global token.
+      const token = rawToken.replace(/\*+$/, "").split("/")[0];
+      if (token === "") {
+        global.push(group);
+        continue;
+      }
+      if (!wanted.includes(token)) continue;
+      if (token.length > matchedLength) matchedLength = token.length;
     }
+    if (matchedLength === -1) continue;
+    if (matchedLength > bestTokenLength) {
+      bestTokenLength = matchedLength;
+      specific = [];
+    }
+    if (matchedLength === bestTokenLength) specific.push(group);
   }
-  return specific ?? star;
+  const chosen = specific.length > 0 ? specific : global;
+  if (chosen.length === 0) return null;
+  return {
+    agents: chosen.flatMap((group) => group.agents),
+    rules: chosen.flatMap((group) => group.rules),
+  };
 }
 
 /**
@@ -291,21 +321,25 @@ export function validateHreflang(alternates, loc, origin) {
 }
 
 /**
- * Reads a `<meta name=… content=…>` by name, in either attribute order. HTML
- * attribute order is not significant, so a regex that assumes `name` precedes
- * `content` silently misses `<meta content="noindex" name="robots">` and the
- * page reads as indexable.
+ * Reads every `<meta name=… content=…>` with the given name, in either attribute
+ * order. HTML attribute order is not significant, so a regex that assumes `name`
+ * precedes `content` silently misses `<meta content="noindex" name="robots">`.
+ * All matching tags are returned, not just the first: Google combines robots
+ * directives across separate meta tags ("the search engine will use the sum of
+ * the negative rules"), so a second `<meta name="robots" content="noindex">` is
+ * a real instruction the first tag must not hide.
  */
-export function findMetaContent(html, name) {
+export function findMetaContents(html, name) {
   const wanted = String(name).toLowerCase();
+  const contents = [];
   for (const tag of String(html).matchAll(/<meta\b[^>]*>/gi)) {
     const tagName = tagAttr(tag[0], "name");
     if (tagName && tagName.toLowerCase() === wanted) {
       const content = tagAttr(tag[0], "content");
-      if (content !== null) return content;
+      if (content !== null) contents.push(content);
     }
   }
-  return null;
+  return contents;
 }
 
 /**
@@ -328,21 +362,62 @@ export function findCanonical(html) {
 export function extractPageSignals(html) {
   const text = String(html);
   const canonical = findCanonical(text);
-  // Google applies `<meta name="robots">` and `<meta name="googlebot">` together
-  // and takes the most restrictive rule, so a `noindex` in either must block the
-  // page. Reading only `robots` let a `googlebot`-only `noindex` (the site emits
-  // a `googlebot` tag on every page) read as indexable.
-  const metaRobots = [findMetaContent(text, "robots"), findMetaContent(text, "googlebot")]
-    .filter((value) => value !== null)
+  // Google applies the robots directives of every matching meta tag together and
+  // takes the sum of the negative rules, so a `noindex` in any of them blocks the
+  // page — and all tags of a name must be read, not just the first. Only the
+  // `robots` and `googlebot` names address web search; `googlebot-news` governs
+  // news results alone, so folding it in would flag a page as noindex that web
+  // search still indexes.
+  const metaRobots = ["robots", "googlebot"]
+    .flatMap((name) => findMetaContents(text, name))
     .join(" ")
     .trim();
-  const siteVerification = findMetaContent(text, "google-site-verification");
-  // `findCanonical`/`findMetaContent` already XML-decode their values.
+  const siteVerification = findMetaContents(text, "google-site-verification")[0] ?? null;
+  // `findCanonical`/`findMetaContents` already XML-decode their values.
   return {
     canonical,
     metaRobots: metaRobots ? metaRobots.toLowerCase() : null,
     siteVerification,
   };
+}
+
+/** The directive names Google documents for robots meta tags and X-Robots-Tag. */
+const ROBOTS_RULES = new Set([
+  "all",
+  "index",
+  "noindex",
+  "follow",
+  "nofollow",
+  "none",
+  "nosnippet",
+  "max-snippet",
+  "max-image-preview",
+  "max-video-preview",
+  "noarchive",
+  "nocache",
+  "noimageindex",
+  "notranslate",
+  "nopagereadaloud",
+  "nositelinkssearchbox",
+  "indexifembedded",
+  "unavailable_after",
+]);
+
+/**
+ * Drops a leading crawler name from an `X-Robots-Tag` value. The header may name
+ * a user agent before the rules (`X-Robots-Tag: googlebot: nofollow`); the name
+ * is not a rule, so leaving it in makes the directive list read as
+ * "googlebot nofollow" and can only cause a false match, never a useful one.
+ *
+ * A prefix is only treated as a crawler name when it is not itself a rule: the
+ * rules `max-image-preview:large` and `unavailable_after: <date>` also carry a
+ * colon, so a bare "strip anything before the colon" would eat them.
+ */
+export function stripRobotsAgent(value) {
+  if (typeof value !== "string") return "";
+  const match = value.match(/^\s*([a-z][a-z0-9_-]*)\s*:\s*(?=[a-z])/i);
+  if (!match || ROBOTS_RULES.has(match[1].toLowerCase())) return value.trim();
+  return value.slice(match[0].length).trim();
 }
 
 /**
@@ -353,11 +428,13 @@ export function extractPageSignals(html) {
  */
 export function evaluateIndexability({ status, canonical, metaRobots, xRobotsTag, loc, origin }) {
   if (status !== 200) return { ok: false, state: "unreachable", reason: `HTTP ${status}` };
-  const robots = `${metaRobots ?? ""} ${xRobotsTag ?? ""}`.toLowerCase();
+  const robots = `${metaRobots ?? ""} ${stripRobotsAgent(xRobotsTag)}`.toLowerCase();
   // `none` is documented shorthand for `noindex, nofollow` (Google robots meta
-  // tag reference), so it blocks indexing exactly as `noindex` does. Matching
-  // only the literal `noindex` read a `none` page as indexable.
-  if (/\b(?:noindex|none)\b/.test(robots)) {
+  // tag reference), so it blocks indexing exactly as `noindex` does. It must match
+  // the whole directive, not a substring: a `\bnone\b` test also matched the
+  // value of `max-image-preview:none` / `max-video-preview:none`, which restrict
+  // image and video previews but leave the page fully indexable.
+  if (/(?:^|[\s,])(?:noindex|none)(?=$|[\s,])/.test(robots)) {
     return { ok: false, state: "noindex", reason: "page is noindex but listed in the sitemap" };
   }
   if (!canonical) {
