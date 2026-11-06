@@ -2647,7 +2647,7 @@ ayracı olmadığından kuralı bozmuyor.
 | `/api/email/unsubscribe` | 400 | **500** | origin |
 
 Origin (alias) da aynı → **CF değil, repo-tarafı** (Next.js `%2F` içeren yolu
-rotalayamıyor). Sızıntı yok (jenerik `/500` gövdesi). Sahip: `src/app/api/**`
+rotalayamıyor). Sızıntı yok (jenerik `/500` gövdesi). Sahip: `src/app/api/**` (devir issue **#441**, `lane:infra`+`agent:handoff`)
 (LANE-URUN/GÜVENLİK) — bu lane düzeltmez.
 
 #### Kapalı kayıt — #163 CF halkası (bulunabilirlik)

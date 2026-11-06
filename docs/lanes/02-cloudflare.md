@@ -745,7 +745,7 @@ Sonraki lane için notlar: (1) `%2F` kaçışı kurala bağlı — kuralın lite
 - **N-06:** Sınıf adı **"`/`-içeren literaller"**; `%09`/`;` gibi kodlu ayraçlar
   kuralı bozmuyor (`/api/devtools/x%09x` → 403).
 - **N-03r:** `%2F` API yolları origin'de 500 (`/api/qr`, `/api/push/subscriptions`,
-  `/api/email/unsubscribe`); `/api%2Fbuild-info` 200. CF değil, `src/app/api/**`.
+  `/api/email/unsubscribe`); `/api%2Fbuild-info` 200. CF değil, `src/app/api/**` (devir **#441**).
 - **Kapalı kayıt — #163 CF halkası TEMİZ:** Googlebot/bingbot/YandexBot 200,
   `cf-mitigated` yok; 207 `<loc>` hepsi apex host'ta; `google-site-verification`
   gerçek sayfalarda var; robots yalnız `/api/`+`/auth/`+varsayılan-olmayan diller.
@@ -757,4 +757,4 @@ Sonraki lane için notlar: (1) `%2F` kaçışı kurala bağlı — kuralın lite
   `private` → poisoning yüzeyi yok. **H-02** başlıkları sabit.
 
 **Açık (değişmedi):** H-01r, H-02, N-01r, R-01, G-01, F-08, SR-01.
-**Devir:** N-05 → **#437** (açık); N-03 → `src/app/api/**`.
+**Devir:** N-05 → **#437** (açık); N-03 → **#441** (`lane:infra`+`agent:handoff`, açık).
