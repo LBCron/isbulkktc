@@ -18,6 +18,7 @@ import {
   type WelcomeAudience,
 } from "../../../supabase/functions/_shared/email-render.ts";
 import { resolveEmailLocale } from "../../../supabase/functions/_shared/email-copy.ts";
+import { buildEmailHeaders, type EmailHeaders } from "./email-headers";
 
 /**
  * Node-side transactional mailer for emails that originate in a Next.js server
@@ -67,6 +68,19 @@ export function getFeedbackInbox(): string | null {
   return inbox && inbox.includes("@") ? inbox : null;
 }
 
+/**
+ * The monitored mailbox a reply to an outbound message should reach. The
+ * default `from` is `no-reply@…`, so without a `Reply-To` a reply disappears
+ * (#196). Falls back to the sales contact, then to the feedback inbox.
+ */
+function getReplyToInbox(): string | null {
+  const inbox =
+    process.env.SALES_INBOX_EMAIL?.trim() ||
+    process.env.SALES_CONTACT_EMAIL?.trim() ||
+    getFeedbackInbox();
+  return inbox && inbox.includes("@") ? inbox : null;
+}
+
 function localeUrl(locale: AppLocale, path: string): string {
   return new URL(`${getLocalePrefix(locale)}${path}`, getAppBaseUrl()).toString();
 }
@@ -75,12 +89,19 @@ async function deliver(
   email: RenderedEmail,
   to: string,
   idempotencyKey: string,
+  options: { unsubscribeUrl?: string } = {},
 ): Promise<void> {
   const resend = getResend();
   if (!resend) {
     // The reason (missing vs malformed) was reported by `getResend`.
     return;
   }
+  // `Reply-To` on every message, `List-Unsubscribe` only on the promotional
+  // family (the caller passes `unsubscribeUrl` there) — RFC 8058 one-click.
+  const extra: EmailHeaders = buildEmailHeaders({
+    replyToInbox: getReplyToInbox(),
+    unsubscribeUrl: options.unsubscribeUrl,
+  });
   try {
     const result = await resend.emails.send(
       {
@@ -89,6 +110,7 @@ async function deliver(
         subject: email.subject,
         html: email.html,
         text: email.text,
+        ...extra,
       },
       { idempotencyKey },
     );
@@ -280,5 +302,8 @@ export async function sendEngagementEmail(input: {
     jobsUrl: localeUrl(locale, "/jobs"),
     unsubscribeUrl: input.unsubscribeUrl,
   });
-  await deliver(email, input.to, `engagement/${input.campaignId}`);
+  // The promotional family carries the one-click unsubscribe header (#196).
+  await deliver(email, input.to, `engagement/${input.campaignId}`, {
+    unsubscribeUrl: input.unsubscribeUrl,
+  });
 }

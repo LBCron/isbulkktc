@@ -551,3 +551,45 @@ Canlıya dokunulmadı.
   için aynı host kuralı orada (ve mümkünse tablo CHECK'inde) uygulanmalı.
 - **LANE-GÜVENLİK:** `push-endpoint-ssrf.test.ts` → "documents the gap" testi
   artık gereksiz; `todo`'yu kapıya terfi ettir.
+
+---
+
+## Tur 11 — e-postada Reply-To ve tek-tık unsubscribe başlıkları (#196)
+
+### Alınan issue
+Kuyrukta `lane:urun` + `agent:handoff` etiketli **#196** (LANE-CLOUDFLARE'ın #170
+ölçümünden devir): teslim-edilebilirlik eksiği, `src/server/email/mailer.ts`.
+
+### Doğrulanan kanıt
+`deliver()` yalnız `from / to / subject / html / text` gönderiyordu; `headers`
+ve `replyTo` yoktu:
+- `from` varsayılanı `no-reply@isbulkktc.com` → yanıtlar kayboluyordu.
+- `sendEngagementEmail` **promosyonel** ailedir ve `unsubscribeUrl` alır; Gmail/
+  Yahoo toplu gönderimde `List-Unsubscribe` + One-Click'i şart koşar. Yoktu.
+
+### Düzeltme (yalnız sahip olduğum/atandığım yüzey)
+- **Yeni `src/server/email/email-headers.ts`** (saf, env/IO yok):
+  `buildEmailHeaders` + `listUnsubscribeHeaders`. RFC 8058 tek-tık çifti;
+  mailto fallback izlenen kutu varsa; **https-dışı/bozuk URL → başlık yok**.
+- **`mailer.ts`:** `deliver(..., { unsubscribeUrl? })` başlıkları Resend
+  gönderimine spread eder; `getReplyToInbox()` = `SALES_INBOX_EMAIL` →
+  `SALES_CONTACT_EMAIL` → `FEEDBACK_INBOX_EMAIL`; `sendEngagementEmail`
+  `unsubscribeUrl`'ini geçirir (tek-tık yalnız promosyonel ailede).
+
+### Fonksiyonel doğrulama
+`fetch` stub'lanıp **gerçek Resend istek gövdesi** yakalandı (ağ yok):
+```
+transactional (welcome)     : reply_to="destek@isbulkktc.com", headers=undefined
+promotional (engagement)    : reply_to + List-Unsubscribe + List-Unsubscribe-Post
+```
+Yeni test: `src/server/email/email-headers.test.ts` (7 test).
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (601, 0 fail)/test:security/
+test:integration (48, 0 fail) → hepsi yeşil. Canlıya dokunulmadı.
+
+### Devredilen / kapsam dışı
+- DNS/SPF/DKIM: LANE-CLOUDFLARE (ölçüldü, sağlam).
+- `[auth.smtp]` + DKIM rotasyonu: LANE-AUTH (#195).
+- `src/server/email/**` sahiplik tablosunda **sahipsiz**; #196 açıkça LANE-URUN'a
+  veriyor ve başka lane dosyayı düzenlemiyor → yapıldı.
