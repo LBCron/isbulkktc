@@ -6,6 +6,7 @@ import {
   classifyDnsResult,
   countSpfDnsLookups,
   evaluateBlocklistZone,
+  interpretDnsResponse,
   isRelaxedAligned,
   reverseIpv4,
   spfAuthorisesSender,
@@ -144,4 +145,24 @@ test("DMARC relaxed alignment covers the Return-Path subdomain", () => {
   assert.equal(isRelaxedAligned("isbulkktc.com", "send.isbulkktc.com"), true);
   assert.equal(isRelaxedAligned("evil-example.com", "isbulkktc.com"), false);
   assert.equal(isRelaxedAligned("", "isbulkktc.com"), false);
+});
+
+test("a resolver failure is an error, not an absent record", () => {
+  // Regression: the DoH JSON resolver reports RCODEs in `Status`, not as an HTTP
+  // error, so a SERVFAIL/REFUSED answer arrived as HTTP 200 with no `Answer` and
+  // was read as "record absent" — a false FAIL. NXDOMAIN (Status 3) *is* absent.
+  assert.deepEqual(interpretDnsResponse(3, undefined), { answers: [], error: null });
+  assert.deepEqual(interpretDnsResponse(0, [{ data: "v=spf1 ~all" }]), {
+    answers: ["v=spf1 ~all"],
+    error: null,
+  });
+  assert.deepEqual(interpretDnsResponse(0, undefined), { answers: [], error: null });
+  for (const code of [1, 2, 5]) {
+    const result = interpretDnsResponse(code, undefined);
+    assert.equal(result.error, `DNS Status ${code}`);
+    assert.equal(classifyDnsResult(result), "error");
+  }
+  // NXDOMAIN still classifies as absent, which is what makes an SPF/DKIM record
+  // genuinely missing a real FAIL rather than a skip.
+  assert.equal(classifyDnsResult(interpretDnsResponse(3, undefined)), "absent");
 });

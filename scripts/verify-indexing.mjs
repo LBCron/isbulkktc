@@ -167,8 +167,12 @@ function tagText(block, tag) {
 function tagAttr(tagString, name) {
   // HTML/XML allow single- or double-quoted attribute values; a double-quote
   // only regex reads `<meta name='robots' content='noindex'>` as "no directive".
+  // The attribute name must be preceded by whitespace (or the tag opener), not
+  // merely by a word boundary: `\b` also matches the `rel` inside `data-rel`
+  // and the `name` inside `data-name`, so `<link data-rel="canonical" …>` read
+  // as a canonical link.
   const match = String(tagString).match(
-    new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
+    new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
   );
   if (!match) return null;
   return decodeXml(match[1] ?? match[2]);
@@ -304,19 +308,40 @@ export function findMetaContent(html, name) {
   return null;
 }
 
+/**
+ * Reads a `<link rel="canonical" href="…">` in either attribute order. Both
+ * `rel` and `href` are read through `tagAttr`, which tolerates single or double
+ * quotes and any attribute order — the previous regexes hardcoded a quote style
+ * and an adjacency that real HTML does not guarantee.
+ */
+export function findCanonical(html) {
+  for (const tag of String(html).matchAll(/<link\b[^>]*>/gi)) {
+    const rel = tagAttr(tag[0], "rel");
+    if (rel && rel.toLowerCase().split(/\s+/).includes("canonical")) {
+      return tagAttr(tag[0], "href");
+    }
+  }
+  return null;
+}
+
 /** The canonical and robots directives a page's HTML head declares. */
 export function extractPageSignals(html) {
   const text = String(html);
-  const canonical =
-    text.match(/<link\b[^>]*\brel=["']canonical["'][^>]*\bhref=["']([^"']*)["']/i)?.[1] ??
-    text.match(/<link\b[^>]*\bhref=["']([^"']*)["'][^>]*\brel=["']canonical["']/i)?.[1] ??
-    null;
-  const metaRobots = findMetaContent(text, "robots");
+  const canonical = findCanonical(text);
+  // Google applies `<meta name="robots">` and `<meta name="googlebot">` together
+  // and takes the most restrictive rule, so a `noindex` in either must block the
+  // page. Reading only `robots` let a `googlebot`-only `noindex` (the site emits
+  // a `googlebot` tag on every page) read as indexable.
+  const metaRobots = [findMetaContent(text, "robots"), findMetaContent(text, "googlebot")]
+    .filter((value) => value !== null)
+    .join(" ")
+    .trim();
   const siteVerification = findMetaContent(text, "google-site-verification");
+  // `findCanonical`/`findMetaContent` already XML-decode their values.
   return {
-    canonical: canonical ? decodeXml(canonical) : null,
+    canonical,
     metaRobots: metaRobots ? metaRobots.toLowerCase() : null,
-    siteVerification: siteVerification ? decodeXml(siteVerification) : null,
+    siteVerification,
   };
 }
 
@@ -329,7 +354,10 @@ export function extractPageSignals(html) {
 export function evaluateIndexability({ status, canonical, metaRobots, xRobotsTag, loc, origin }) {
   if (status !== 200) return { ok: false, state: "unreachable", reason: `HTTP ${status}` };
   const robots = `${metaRobots ?? ""} ${xRobotsTag ?? ""}`.toLowerCase();
-  if (/\bnoindex\b/.test(robots)) {
+  // `none` is documented shorthand for `noindex, nofollow` (Google robots meta
+  // tag reference), so it blocks indexing exactly as `noindex` does. Matching
+  // only the literal `noindex` read a `none` page as indexable.
+  if (/\b(?:noindex|none)\b/.test(robots)) {
     return { ok: false, state: "noindex", reason: "page is noindex but listed in the sitemap" };
   }
   if (!canonical) {
