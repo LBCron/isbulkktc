@@ -6,12 +6,14 @@ import {
   evaluateIndexability,
   extractPageSignals,
   findCanonical,
+  findMetaContents,
   hasLocalePrefix,
   isPathAllowed,
   isSameOrigin,
   parseRobots,
   parseSitemap,
   sampleUrls,
+  stripRobotsAgent,
   validateHreflang,
   validateLoc,
   verdictForPage,
@@ -334,4 +336,111 @@ test("the canonical link is read in either attribute order and quote style", () 
   // match accepted it and read an unrelated link as the canonical.
   assert.equal(findCanonical(`<link data-rel="canonical" href="https://evil.example/x">`), null);
   assert.equal(extractPageSignals(`<link href="${ORIGIN}/en" rel="canonical">`).canonical, `${ORIGIN}/en`);
+});
+
+test("a preview-only `none` does not block indexing, but a bare `none` does", () => {
+  // Regression: the check matched `\bnone\b` anywhere, so the documented
+  // `max-image-preview:none` / `max-video-preview:none` values — which limit
+  // previews, not indexing — read as `noindex` and failed a healthy page.
+  const loc = `${ORIGIN}/en`;
+  const base = { status: 200, canonical: loc, loc, origin: ORIGIN };
+  assert.equal(evaluateIndexability({ ...base, metaRobots: "index, follow, max-image-preview:none" }).ok, true);
+  assert.equal(evaluateIndexability({ ...base, metaRobots: "index, follow, max-video-preview:none" }).ok, true);
+  assert.equal(
+    evaluateIndexability({ ...base, metaRobots: "max-snippet:-1, max-image-preview:large" }).ok,
+    true,
+  );
+  // A bare `none` directive still blocks, in either separator position.
+  assert.equal(evaluateIndexability({ ...base, metaRobots: "none" }).state, "noindex");
+  assert.equal(evaluateIndexability({ ...base, metaRobots: "index, none" }).state, "noindex");
+  assert.equal(evaluateIndexability({ ...base, xRobotsTag: "none" }).state, "noindex");
+  // `noimageindex` contains `none`? No — it contains `noimage`, so it must not block.
+  assert.equal(evaluateIndexability({ ...base, metaRobots: "noimageindex" }).ok, true);
+});
+
+test("robots directives are combined across every matching meta tag", () => {
+  // Regression: only the first tag of each name was read, so a second
+  // `<meta name="robots" content="noindex">` (Google: "the search engine will
+  // use the sum of the negative rules") was invisible and the page read as
+  // indexable.
+  const loc = `${ORIGIN}/en`;
+  const html = `<link rel="canonical" href="${loc}">`;
+  const verdict = verdictForPage({
+    status: 200,
+    body: `${html}<meta name="robots" content="index, follow"><meta name="robots" content="noindex">`,
+    xRobotsTag: null,
+    loc,
+    origin: ORIGIN,
+  });
+  assert.equal(verdict.state, "noindex");
+
+  // A `googlebot-news` noindex governs news results alone; it must NOT block web
+  // indexing, or the check would fail a page web search still indexes.
+  const news = verdictForPage({
+    status: 200,
+    body: `${html}<meta name="googlebot" content="index, follow"><meta name="googlebot-news" content="noindex">`,
+    xRobotsTag: null,
+    loc,
+    origin: ORIGIN,
+  });
+  assert.equal(news.ok, true);
+
+  // Both `robots` tags are returned, in document order.
+  assert.deepEqual(
+    findMetaContents('<meta name="robots" content="index"><meta name="robots" content="noindex">', "robots"),
+    ["index", "noindex"],
+  );
+});
+
+test("an X-Robots-Tag that names a crawler still blocks on its rules", () => {
+  // Regression: `X-Robots-Tag: googlebot: noindex` is a documented form. The
+  // leading `googlebot:` is a user-agent name, not a rule; it must be dropped
+  // rather than folded into the directive list.
+  const loc = `${ORIGIN}/en`;
+  const base = { status: 200, canonical: loc, loc, origin: ORIGIN };
+  assert.equal(evaluateIndexability({ ...base, xRobotsTag: "googlebot: noindex" }).state, "noindex");
+  assert.equal(evaluateIndexability({ ...base, xRobotsTag: "googlebot: index, follow" }).ok, true);
+  // A rule that carries a colon (`unavailable_after: <date>`) must not be mistaken
+  // for a user-agent prefix.
+  assert.equal(stripRobotsAgent("unavailable_after: 25 Jun 2010 15:00:00 PST"), "unavailable_after: 25 Jun 2010 15:00:00 PST");
+  assert.equal(stripRobotsAgent("googlebot: nofollow"), "nofollow");
+  assert.equal(stripRobotsAgent("noindex"), "noindex");
+  assert.equal(stripRobotsAgent(null), "");
+});
+
+test("the most specific user-agent group wins, and equal groups combine", () => {
+  // Regression: `selectGroup` returned the first group whose token was a
+  // substring of the crawler name, so a short earlier `bot` group shadowed a
+  // later `googlebot` group — Google instead picks the most specific token.
+  const shadowed = parseRobots(
+    ["User-agent: bot", "Disallow: /private/", "", "User-agent: googlebot", "Allow: /private/"].join("\n"),
+  );
+  assert.equal(isPathAllowed(shadowed, "/private/x", "Googlebot"), true);
+  assert.equal(isPathAllowed(shadowed, "/private/x", "SomeBot"), false);
+
+  // Regression: several groups for the same agent are combined into one rule
+  // set, so a `Disallow` in the second group still applies.
+  const combined = parseRobots(
+    ["User-agent: googlebot", "Disallow: /a/", "", "User-agent: googlebot", "Disallow: /b/"].join("\n"),
+  );
+  assert.equal(isPathAllowed(combined, "/a/x", "Googlebot"), false);
+  assert.equal(isPathAllowed(combined, "/b/x", "Googlebot"), false);
+  assert.equal(isPathAllowed(combined, "/c/x", "Googlebot"), true);
+
+  // A specific group beats the global `*` group entirely.
+  const specificWins = parseRobots(
+    ["User-agent: *", "Disallow: /", "", "User-agent: googlebot", "Allow: /"].join("\n"),
+  );
+  assert.equal(isPathAllowed(specificWins, "/jobs", "Googlebot"), true);
+  assert.equal(isPathAllowed(specificWins, "/jobs", "Bingbot"), false);
+
+  // `googlebot*` and `googlebot/1.2` are the same token as `googlebot`.
+  assert.equal(
+    isPathAllowed(parseRobots("User-agent: googlebot*\nDisallow: /x/"), "/x/y", "Googlebot"),
+    false,
+  );
+  assert.equal(
+    isPathAllowed(parseRobots("User-agent: googlebot/1.2\nDisallow: /x/"), "/x/y", "Googlebot/2.1"),
+    false,
+  );
 });

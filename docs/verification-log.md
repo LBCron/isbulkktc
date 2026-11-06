@@ -289,3 +289,65 @@ doğrulanmamış iddia yok.
 
 Testler: `verify-indexing.test.mjs` 19/19, `verify-deliverability.test.mjs` 11/11,
 `verify-auth-config.test.mjs` 3/3 (toplam 33).
+## Tur 7 — ölçüm araçlarının kendi kusurları, devam (2026-11-05)
+
+Tur 5 ve 6 ile aynı sınıf: **araç kusuru sonuç gibi okunmamalı**. Üç sahipli
+doğrulayıcı baştan denetlendi; yedi kusur çıktı — beşi `verify-indexing.mjs`,
+biri `verify-deliverability.mjs`, biri `verify-auth-config.mjs`. Hepsi kendi
+dosyalarımda düzeltildi ve regresyon testiyle sabitlendi.
+
+| # | Dosya | Boyut | Gözlenen | Beklenen | Etki | Düzeltme |
+|---|---|---|---|---|---|---|
+| 1 | `verify-indexing.mjs` | doğruluk | `/\b(?:noindex\|none)\b/` `max-image-preview:none` / `max-video-preview:none` değerini eşeliyordu | `none` yalnız başına bir direktif; `…:none` önizleme sınırıdır, index'i engellemez | Sağlıklı sayfa sahte `noindex` | direktif sınırına çapalı regex |
+| 2 | `verify-indexing.mjs` | doğruluk | her `name` için yalnız **ilk** `<meta>` okunuyordu | Google etiketleri birleştirir ("sum of the negative rules") | İkinci `<meta name="robots" content="noindex">` görünmez → sahte indexable | `findMetaContents` tüm etiketleri döner |
+| 3 | `verify-indexing.mjs` | mantık | `selectGroup` token'ın substring olduğu **ilk** grubu alıyordu | en **spesifik** (en uzun) token kazanır; eşit token'lar birleşir | Kısa `bot` grubu `googlebot`'u gölgeler; aynı ajanın ikinci grubu düşer | en uzun token + eşitleri birleştir |
+| 4 | `verify-indexing.mjs` | doğruluk | `X-Robots-Tag: googlebot: noindex` değeri olduğu gibi okunuyordu | baştaki ajan adı kural değil | Ajan adı kural listesine karışır | `stripRobotsAgent` (kural sözlüğüyle ayrım) |
+| 5 | `verify-indexing.mjs` | mantık | `googlebot/1.2` / `googlebot*` token biçimleri | Google ikisini de `googlebot` sayar | Sürümlü token eşleşmez | token `*` ve `/` kırpılır |
+| 6 | `verify-deliverability.mjs` | doğruluk | `spfIpEntries` `ip4:` için büyük/küçük harfe duyarlıydı | RFC 7208 §4.6.1 mekanizma adları harf-duyarsız | `IP4:` göndereni yetkisiz gösterir → sahte `FAIL` | regex `/i` |
+| 7 | `verify-auth-config.mjs` | hata yolu | `evaluateCaptchaProbe` 429'u `disabled` sayıyordu | 429 hız sınırı; captcha hiç sınanmadı | Kısıtlanmış koşu "captcha kapalı" der → sahte PASS | 429 → `unreachable` |
+
+### Kanıt (dosya:satır, gözlenen → beklenen)
+
+- **#1:** Google robots meta referansı, `max-image-preview` *"Accepted
+  [setting] values: none: No image preview is to be shown."* — index kuralı
+  değil. Önce: `evaluateIndexability({metaRobots:"index, follow, max-image-preview:none"})`
+  → `state:"noindex"`; sonra `ok:true`. `none` tek başına hâlâ `noindex`.
+- **#2:** Google robots meta referansı: *"Multiple meta tags … The page
+  containing these meta tags will be interpreted as having a noindex, nofollow
+  rule"*. Önce: `<meta name="robots" content="index"><meta name="robots"
+  content="noindex">` → `indexable`; sonra `noindex`.
+- **#3:** Google robots.txt referansı: *"finding in the robots.txt file the group
+  with the most specific user agent that matches the crawler's user agent"* ve
+  *"If there's more than one specific group declared for a user agent, all the
+  rules … are combined"*. Önce: `[bot: Disallow /private/][googlebot: Allow
+  /private/]` + `Googlebot` → `/private/x` **disallowed** (yanlış); sonra
+  **allowed**. İki `googlebot` grubu: ikinci grubun `Disallow`'u önce düşüyordu.
+- **#4:** Google robots meta referansı: *"The X-Robots-Tag may optionally specify
+  a user agent before the rules … `X-Robots-Tag: googlebot: nofollow`"*. Önce
+  ajan adı kural listesine giriyordu.
+- **#6:** RFC 7208 §4.6.1: *"As per the definition of the ABNF notation in
+  [RFC5234], mechanism and modifier names are case-insensitive."* Önce:
+  `spfIpEntries("v=spf1 IP4:52.3.252.119 ~all")` → `[]`; sonra IP döner.
+- **#7:** Supabase Auth hız sınırı dokümanı: *"When rate limits are exceeded, a
+  429 Too Many Requests error is returned."* Önce: `evaluateCaptchaProbe(429,
+  …)` → `state:"disabled", ok:true`; sonra `state:"unreachable", ok:false`.
+
+### Canlı ölçüm (değişmedi)
+
+```
+node scripts/verify-indexing.mjs   → 0 fail / 0 warn / 0 skip
+node scripts/verify-deliverability.mjs
+  WARN SPF   kök kayıt göndereni yetkilendirmiyor; Return-Path alt alanı yetkili + DMARC hizalı
+  PASS SPF   send.isbulkktc.com (Return-Path) yetkili
+  PASS DKIM  resend._domainkey, 216 karakter
+  WARN DMARC p=none (yalnız izler, uygulamaz)
+  PASS MX    3 Cloudflare route
+  WARN Blocklists surbl/spamcop temiz; dbl/zen.spamhaus sorgulanamadı (datacenter IP)
+  FAIL Resend anahtar `re_` ile başlamıyor (len 36) → #186 (insan)
+```
+
+Katman 2/3 (gerçek gönderim, spam skoru) hâlâ #186 + #170 yüzünden ölçülemez;
+doğrulanmamış iddia yok.
+
+Testler: `verify-indexing.test.mjs` 23/23, `verify-deliverability.test.mjs` 11/11,
+`verify-auth-config.test.mjs` 5/5 (toplam 39).

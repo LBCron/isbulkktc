@@ -266,6 +266,17 @@ export function evaluateCaptchaProbe(status, body) {
     };
   }
 
+  // A rate-limited probe (HTTP 429) never reached the captcha check, so its
+  // status says nothing about enforcement. Reading it as `disabled` reported
+  // "captcha is not enforced" from a run that was simply throttled.
+  if (status === 429) {
+    return {
+      state: "unreachable",
+      ok: false,
+      reason: "The auth probe was rate-limited (HTTP 429); captcha enforcement was not tested.",
+    };
+  }
+
   if (typeof status === "number" && status >= 200 && status < 500) {
     return {
       state: "disabled",
