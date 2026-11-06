@@ -44,10 +44,7 @@ const sectionLabels: Record<ResumeSection, string[]> = {
   ],
   location: [
     "location",
-    "address",
     "konum",
-    "adres",
-    "ikametgah",
     "местоположение",
     "τοποθεσία",
     "موقعیت",
@@ -167,6 +164,14 @@ const ignoredSectionLabels = [
   "career objective",
   "personal details",
   "personal information",
+  // An address block is personal data, not the candidate's headline or
+  // location, so "Adres: Lefkoşa" must not become the profile location (#208).
+  // "Location:"/"Konum:" stay real location labels. Other personal fields
+  // (phone, birth date, ID) are handled by `isPersonalDataLine`, which filters
+  // the *date* on the line without consuming the line as a heading.
+  "adres",
+  "address",
+  "ikametgah",
   "о себе",
   "профиль",
   "σχετικά με εμένα",
@@ -332,10 +337,14 @@ const monthNames = [
 const monthPattern = monthNames.join("|");
 const yearToken = "(?:19|20)\\d{2}";
 const dateToken = `(?:\\d{1,2}[./-])?(?:(?:${monthPattern})[a-zçğıöşü]*[ .]*)?${yearToken}`;
+// Longer alternatives first: "devam ediyor" must win over "devam", or the
+// regex stops at "devam" and leaves "ediyor" as a stray location (#208).
 const ongoingPattern =
-  "present|current|now|halen|devam|guncel|güncel|devam ediyor|ongoing";
+  "devam ediyor|present|current|now|halen|devam|guncel|güncel|ongoing";
+// `|` is a separator a tabular CV uses between the start and end year
+// ("Acme | Dev | 2019 | 2023"); without it the end date is lost (#208).
 const dateRangePattern = new RegExp(
-  `(${dateToken})\\s*(?:-|–|—|to|\\/)\\s*(${dateToken}|${ongoingPattern})`,
+  `(${dateToken})\\s*(?:-|–|—|to|\\/|\\|)\\s*(${dateToken}|${ongoingPattern})`,
   "i",
 );
 const singleYearPattern = /(?:19|20)\d{2}/;
@@ -393,9 +402,11 @@ function isPersonalDataLine(line: string): boolean {
 }
 
 /**
- * A range whose two endpoints are years must run forwards and stay plausible
- * (a >60-year "career" is a misread, not a period). Endpoints that are not years
- * — "Present", "Halen" — are always accepted.
+ * A range whose two endpoints are years must run forwards, stay plausible
+ * (a >60-year "career" is a misread, not a period), and not start in the future
+ * (a date that has not happened is a misread too — #208). Endpoints that are not
+ * years — "Present", "Halen" — are always accepted, since an ongoing role is
+ * legitimately open-ended.
  */
 function isValidYearRange(start: string, end: string): boolean {
   const startYear = singleYearPattern.exec(start)?.[0];
@@ -403,7 +414,8 @@ function isValidYearRange(start: string, end: string): boolean {
   if (!startYear || !endYear) return true;
   const from = Number(startYear);
   const to = Number(endYear);
-  return from <= to && to - from <= 60;
+  const currentYear = new Date().getUTCFullYear();
+  return from <= to && to - from <= 60 && from <= currentYear;
 }
 
 type DateRange = { startDate: string; endDate: string; matched: string };
@@ -465,6 +477,17 @@ function stripDates(line: string): string {
 function isPureDateLine(line: string, range: DateRange | null): boolean {
   if (!range) return false;
   return stripDateRange(line, range).replace(/[()\s\-–—|·,]+/g, "").length === 0;
+}
+
+/**
+ * The earliest year on the line, or null. Used to spot a line dated entirely in
+ * the future: it cannot be work history, so the line is not an entry at all
+ * (#208) — distinct from a backwards or over-long range, which is a typo on a
+ * real entry and keeps the entry with its dates cleared.
+ */
+function firstYearIn(line: string): number | null {
+  const match = singleYearPattern.exec(line);
+  return match ? Number(match[0]) : null;
 }
 
 /**
@@ -532,12 +555,21 @@ function buildBlocks(records: string[]): ResumeBlock[] {
   for (let index = 0; index < records.length; index += 1) {
     const line = records[index];
     const dates = extractDateRange(line);
-    const headText = stripDateRange(line, dates);
+    // `|` is a column separator in a tabular CV, so the header is split on it
+    // before the date is stripped — otherwise "| 2023" survives as a field (#208).
+    const headText = stripDateRange(line.split("|").join(" - "), dates);
     const parts = splitEntryParts(headText).filter(Boolean);
     const structured =
       dates !== null ||
       (parts.length >= 2 && parts.every((part) => part.length <= 90));
     const pureDate = isPureDateLine(line, dates);
+
+    // A line whose earliest year is still in the future is not work history
+    // (#208). Skip it entirely rather than keep a dateless entry for it.
+    const firstYear = firstYearIn(line);
+    if (structured && firstYear !== null && firstYear > new Date().getUTCFullYear()) {
+      continue;
+    }
 
     if (structured) {
       const startsNew =
@@ -844,6 +876,10 @@ function inferSections(loose: string[]): Map<ResumeSection, string[]> {
   for (let index = bodyStart; index < loose.length; index += 1) {
     const line = loose[index];
     if (!line || isContactLine(line)) continue;
+
+    // A labeled personal-data line ("Adres: Lefkoşa - 2019") must not become a
+    // profile field — its value is not a headline or a location (#208).
+    if (/^[^:：]{1,64}\s*[:：]/.test(line) && isPersonalDataLine(line)) continue;
 
     if (resolveNorthernCyprusDistrict(line)) {
       if (!sections.has("location")) push("location", line);

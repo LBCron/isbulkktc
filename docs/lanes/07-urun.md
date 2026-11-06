@@ -684,3 +684,45 @@ test:integration (61, 0 fail)/build → hepsi yeşil. Canlıya dokunulmadı.
 ### Not
 `tests/unit/**` LANE-QA'nın; testi **değiştirmedim**, yalnız kaynağı düzelterek
 todo'yu yeşile çevirdim.
+
+---
+
+## Tur 14 — CV tarih/kutu hataları (#208, açık todo'lar) — PR #331
+
+### Alınan issue
+Kuyrukta `lane:urun` + `agent:handoff` etiketli **#208**. Kaynak benim
+(`resume-parser.ts`); LANE-QA `tests/unit/resume-date-context.test.ts` içinde
+**8 todo** pinlemiş, 4'ü hâlâ açık. Her birini gerçek parser ile önce/sonra ölçtüm.
+
+### Düzeltilen 4 bulgu
+1. **Adres → profil konumu.** `"adres"/"address"/"ikametgah"` location bölüm
+   etiketiydi; `Adres: Lefkoşa - 2019` → `location="Lefkoşa - 2019"`. Kişisel
+   veri oldukları için `ignoredSectionLabels`'a taşındı (`Location:`/`Konum:`
+   gerçek konum etiketi kalır).
+2. **Tabular `|` düzeni bitiş tarihini kaybediyordu.** `Acme | Dev | 2019 | 2023`
+   → `location="| 2023"`, `endDate=""`. `|` tarih-aralığı ayırıcısı oldu; başlık
+   tarih sıyrılmadan önce `|` üzerinde bölünüyor.
+3. **"Devam ediyor" yarım.** `ongoingPattern`'de `devam` `devam ediyor`'dan önce
+   listeliydi; regex ilk eşleşmeyi aldığı için `endDate="Devam"`, `location="ediyor"`.
+   Uzun alternatif öne alındı.
+4. **Gelecek tarih.** `2030 - 2035` kabul ediliyordu; artık **tümden atlanır**
+   (`isValidYearRange` + `buildBlocks` erken `continue`). Geriye dönük/aşırı uzun
+   aralık davranışı değişmedi.
+
+### Devredilen (LANE-QA) — bayat assertion
+`"an address line does not become the profile location"` testi ayrıca
+`headline === "AHMET YILMAZ"` bekliyor. Bu, **iki yeşil sözleşmeyle çelişiyor**:
+`"Alex Example\nalex@example.test"` ve `"Just a single short line"` **`{}`
+döndürmeli**. Yani "adı headline yap" kuralı "tanınmayan serbest metinden
+kategori uydurma" kuralını bozar; ikisini birlikte karşılamak bir **ürün kararı**
+gerektirir. Kaynakta denedim, iki testi kırdı → geri aldım. Kararı LANE-QA'ya
+bıraktım (PR gövdesi + QA yorumu).
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (633, 0 fail)/test:security/
+test:integration (61, 0 fail)/build → hepsi yeşil. Canlıya dokunulmadı.
+
+### Not (kendime)
+`git checkout -B <yeni> origin/main` **commit'lenmemiş** düzenlemeleri yine sildi;
+bu turda düzenlemeleri tek tek yeniden uygulamak gerekti. Kural: branch açmadan
+önce commit'le.
