@@ -8,6 +8,10 @@
  * `dateModified`, it degrades to `datePosted`, which keeps
  * `dateModified >= datePosted` — a requirement Google Jobs enforces — without
  * inventing a timestamp that never happened.
+ *
+ * A value that is present but unparseable is treated the same as an absent one:
+ * emitting it verbatim would publish a `dateModified` that is not a date, which
+ * is worse than falling back to the publication instant.
  */
 export function resolveJobDateModified(
   modifiedAt: string | null | undefined,
@@ -15,5 +19,8 @@ export function resolveJobDateModified(
 ): string {
   const modified = typeof modifiedAt === "string" ? modifiedAt.trim() : "";
   if (!modified) return publishedAt;
-  return Date.parse(modified) < Date.parse(publishedAt) ? publishedAt : modified;
+  const modifiedTime = Date.parse(modified);
+  if (!Number.isFinite(modifiedTime)) return publishedAt;
+  const publishedTime = Date.parse(publishedAt);
+  return modifiedTime < publishedTime ? publishedAt : modified;
 }

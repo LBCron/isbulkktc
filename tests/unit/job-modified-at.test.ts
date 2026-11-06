@@ -27,3 +27,13 @@ test("resolveJobDateModified never emits a modification before publication", () 
     PUBLISHED,
   );
 });
+
+test("resolveJobDateModified degrades to datePosted for an unparseable value", () => {
+  // Emitting a value that is not a date would publish an invalid `dateModified`
+  // — worse than the same fallback used for an absent one.
+  for (const bad of ["garbage", "not-a-date", "2026-13-45", "NaT"]) {
+    const out = resolveJobDateModified(bad, PUBLISHED);
+    assert.equal(out, PUBLISHED, `${bad} should degrade to the publication instant`);
+    assert.ok(Number.isFinite(Date.parse(out)), `${bad} must not yield a non-date`);
+  }
+});

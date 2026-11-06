@@ -593,3 +593,58 @@ test:integration (48, 0 fail) → hepsi yeşil. Canlıya dokunulmadı.
 - `[auth.smtp]` + DKIM rotasyonu: LANE-AUTH (#195).
 - `src/server/email/**` sahiplik tablosunda **sahipsiz**; #196 açıkça LANE-URUN'a
   veriyor ve başka lane dosyayı düzenlemiyor → yapıldı.
+
+---
+
+## Tur 12 — micro-denetim: ayrıştırılamayan tarih iki yeri bozuyor (PR #316)
+
+### Envanter
+`git ls-files` (LANE-URUN sahiplik satırı) → **91 dosya** (72'si kod). Bu turda
+`src/features/jobs/**` satır satır okundu + saf mantık modülleri problandı.
+
+### Bulgular (ikisi de aynı kök neden: tarih dizesi doğrulanmadan kullanılıyor)
+
+**1. `job-modified-at.ts` — geçersiz `dateModified` JSON-LD'ye giriyor.**
+`Date.parse` NaN olduğunda ham değer dönüyordu:
+`resolveJobDateModified("garbage", P)` → `"garbage"`. Çağrı yeri
+`job-posting-structured-data.ts:79` → `dateModified`. Fonksiyonun kendi
+sözleşmesi "değer yoksa `datePosted`'a düş" diyor; *var ama bozuk* kapsam dışıydı.
+
+**2. `sitemap-lastmod.ts` — sitemap'i çökertebiliyor + sıraya bağlı.**
+`new Date("garbage")` geçerli sayılıp `newest` olarak saklanıyordu; NaN'a karşı
+karşılaştırma hep `false` olduğu için **geçersiz Date küçültmeyi kazanıyor** ve
+`src/app/sitemap.ts:49`'daki `toISOString()` `RangeError: Invalid time value`
+atıyordu. Ölçüm: `["garbage", valid]` → THREW, `[valid, "garbage"]` → valid.
+
+### Düzeltme
+- `resolveJobDateModified`: `!Number.isFinite(Date.parse(modified))` → `publishedAt`.
+- `newestJobModifiedAt`: `Number.isNaN(getTime())` olan satırı **atla** → sonuç en
+  yeni gerçek an (ya da `null`), **sıradan bağımsız**.
+
+### Dürüst kapsam notu
+`modified_at` public RPC'den geldiği gibi geçiyor; zod yalnız `z.string().min(1)`.
+Kaynak sütunlar `timestamptz` → **mevcut seed'de erişilemez**. Yani sertleştirme,
+canlı regresyon değil; ama her ikisi de fonksiyonların yazılı sözleşmesini ihlal
+ediyor ve bozuk satırda etki yüksek.
+
+### Eklenen test
+`tests/unit/job-modified-at.test.ts` (+1), `tests/unit/sitemap-lastmod.test.ts` (+1).
+
+### Kapılar
+lint/typecheck/check:frontend-source/test:unit (610, 0 fail)/test:security/
+test:integration (48, 0 fail)/build → hepsi yeşil. Canlıya dokunulmadı.
+
+### Taranan ama bulgu çıkmayan (bu turda)
+`source-job-fetchers.ts` (`toISOString` çağrıları `isWithinSourceWindow`'ın
+finite denetiminden sonra — güvenli), `iskibris-source-parser.ts`,
+`source-job-import.ts`, `company-slug.ts`, `directory.ts`,
+`company-document-parser.ts`, `job-copy-rewrite.ts`, `presentation.ts`,
+`admin-content-schemas.ts`, `push-endpoint.ts`, `web-push-client.ts`,
+`notification-copy.ts`. **Not:** `listingPlanFormSchema.color`
+(`/^#[0-9a-f]{6}$/`) DB CHECK'i (`~ '^#[0-9a-f]{6}$'`) ile **birebir** aynı —
+kasıtlı tutarlılık, bug değil.
+
+### Bakılmayan
+`src/features/candidates/resume-parser.ts` (876 satır): yalnız uç-girdi probu;
+satır satır okunmadı. `company-directory.tsx`, `install-experience.tsx`: yalnız
+ilgili yollar.
