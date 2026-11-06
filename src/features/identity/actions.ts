@@ -396,8 +396,14 @@ export async function signOut(): Promise<void> {
   const { error } = await supabase.auth.signOut();
 
   if (error) {
+    // A remote sign-out that fails transiently must not surface as a 500 on a
+    // form whose whole purpose is to get the visitor out. auth-js's `_signOut`
+    // calls `_removeSession()` on that branch before returning the error, so the
+    // local session (and its cookies) is already gone and the visitor is signed
+    // out either way; the retry the error would invite cannot succeed. When the
+    // stored session itself is unreadable the proxy clears the stale cookies on
+    // the next request, so the redirect is correct there too. Log and continue.
     console.error("Supabase sign-out failed.", { code: error.code });
-    throw new Error("Oturum kapatılamadı.", { cause: error });
   }
 
   return redirectLocalized("/login");

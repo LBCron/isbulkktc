@@ -1047,3 +1047,54 @@ desteklenir ve request bağlamını korur. Best-effort hata yakalama korundu.
 ### Sahibin yapması gerekenler
 - **#161**'in "gerçek hesapla üretimde doğrulama" kalemi hâlâ insan gerektiriyor.
 - **#271** (transactional e-posta `lang`/`dir`) ve **#227** (auth SMTP + DKIM) devirde.
+
+---
+
+## Çalıştırma raporu — 2026-11-05 (micro-denetim turu 10)
+
+```
+Lane: LANE-AUTH            Branch: lane/auth            PR: <açılacak>
+Aldığı issue: yok (yeni sahipsiz lane:auth issue'su yok) → micro-denetim
+Değişen dosyalar:
+  src/features/identity/actions.ts                  (signOut artık throw etmiyor)
+  src/features/identity/sign-out-resilience.test.ts (yeni, 2 test)
+Çalıştırılan kontroller: lint ✅ / typecheck ✅ / check:frontend-source ✅ /
+  test:unit ✅ (638, 2'si yeni) / test:security ✅ (80 pass, 3 todo, 0 fail) /
+  test:integration ✅ (83) / production build ✅
+Canlıya dokundu mu: hayır (Supabase'e yazılmadı; config/migration/şablon değişmedi)
+```
+
+### Denetlenen dosyalar (micro-denetim)
+`git ls-files 'src/features/identity/**'` (40) + 5 `(auth)`/callback route +
+7 şablon → **52 dosya**; hepsine bakıldı. Bakılmayan dosya yok.
+
+### Bulgular
+| # | Dosya:satır | Boyut | Gözlenen | Beklenen | Etki | Durum |
+|---|---|---|---|---|---|---|
+| 1 | `actions.ts:392-410` (`signOut`) | hata yolu | Uzak `signOut` hatasında `throw new Error("Oturum kapatılamadı.")` → form 500 | logla, `/login`'e yönlendir | auth-js `_signOut` o dalda **yerel oturumu zaten silmiş** olur; kullanıcı yerel olarak çıkmışken hata görür ve işe yaramayan bir retry'a davet edilir. Aynı dosyadaki `updatePassword` sign-out'u zaten non-fatal | düzeltildi |
+| 2 | 7 şablon | yapı | Header/imza blokları birebir; `<head>` meta'ları transactional kabukla aynı | — | sorun yok | bilgi |
+| 3 | `oauth-provider-form.tsx` | erişilebilirlik | Devre dışı sağlayıcı düğmesi `aria-describedby="oauth-provider-setup"` + `role=status` notu | — | sorun yok | bilgi |
+
+### Düzeltilen (#1)
+`signOut` artık throw etmiyor; hatayı loglayıp `redirectLocalized("/login")` ile
+devam ediyor. Gerekçe: auth-js kaynağı (`GoTrueClient._signOut`) uzak hata dalında
+`_removeSession()` çağırıp **yerel** oturumu (çerezleri) siliyor; oturumun kendisi
+okunamıyorsa proxy bir sonraki istekte bayat çerezleri temizliyor. Her iki yolda da
+kullanıcı çıkmış olur; 500 göstermek yalnızca kafa karıştırır.
+
+### Kanıt
+- `sign-out-resilience.test.ts` (statik bekçi): `signOut` gövdesinde `throw` yok,
+  `redirectLocalized("/login")` var, hata loglanıyor; `updatePassword` sign-out'u
+  non-fatal kalıyor. Düzeltme geri alınınca test kırmızı olur (mutasyonla doğrulandı).
+- Production standalone sunucu: `/en/login` → 200; `/en/auth/callback?flow=oauth`
+  → `307 /en/login?error=oauth&audience=candidate`. Build ✅.
+
+### Güvenlik değerlendirmesi (security skill)
+- Çıkış yolu zayıflatılmadı: hata yine loglanır, yönlendirme aynı; saldırganın
+  tetikleyebileceği bir yeni durum yok (uzak hatası yalnız oturum sahibinin kendi
+  çıkışında olur).
+- `redirectLocalized` literal `/login`'e gider (kullanıcı girdisi yok).
+
+### Sahibin yapması gerekenler
+- **#161**'in "gerçek hesapla üretimde doğrulama" kalemi hâlâ insan gerektiriyor.
+- **#271** (transactional e-posta `lang`/`dir`) ve **#227** (auth SMTP + DKIM) devirde.
