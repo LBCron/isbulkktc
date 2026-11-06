@@ -424,3 +424,77 @@ ve `interface-catalog.ts` LANE-GEO üretimi, dokunulmadı).
   dışında → LANE-SUPABASE.
 - **#189** (e-posta şablonları marka kimliği) sahibi LANE-AUTH/LANE-GEO/URUN;
   bu lane yalnız metin sağlar, kod tarafı devredildi (mevcut issue yeterli).
+
+## Tur 7 — mikro-denetim: #399 tr "münhal" + "iş ilanı" pleonazmı (2026-11-06)
+
+**Kanıt (TDK).** `münhal` = boş kadro / açık pozisyon (bir *durum*); `iş ilanı` =
+bir işin duyurulduğu *ilan metni*. Aynı cümlede yan yana gelince aynı kavram iki
+kez söylenir → pleonazm ("açık pozisyon ilanı"). 10 tr anahtarı bu çifti taşıyordu.
+
+### Bulgular (tr.json) — dosya:satır, önce → sonra
+
+| # | Anahtar | Satır | Önce (pleonazm) | Sonra | Etki |
+|---|---|---|---|---|---|
+| 1 | `Meta.title` | 3 | `İşBul KKTC — KKTC ve Kuzey Kıbrıs …` | `İşBul KKTC — Kuzey Kıbrıs …` | `KKTC` tekrarı (marka + bölge) |
+| 2 | `Meta.description` | 4 | `…ilanlarını, münhalleri ve…` | `…ilanlarını ve…` | pleonazm |
+| 3 | `HomeMeta.description` | 57 | `…iş ilanları, münhal ve…` | `…iş ilanları ve…` | pleonazm |
+| 4 | `JobsMeta.title` | 224 | `KKTC Güncel İş İlanları ve Münhaller` | `KKTC Güncel Münhaller` | pleonazm; `münhal` SEO terimi (#190) korunur |
+| 5 | `JobsMeta.description` | 225 | `…ilanlarını ve münhalleri…` | `…ilanlarını…` | pleonazm |
+| 6 | `HomePage.title` | 663 | `<line>münhal ve kariyer</line>` | `<line>kariyer ve gelişim</line>` | pleonazm |
+| 7 | `DistrictPage.metaTitle` | 1424 | `{district} İş İlanları ve Münhaller \| KKTC` | `{district} İş İlanları \| KKTC` | pleonazm |
+| 8 | `DistrictPage.metaDescription` | 1425 | `…münhal ve kariyer…` | `…ve kariyer…` | pleonazm |
+| 9 | `DistrictPage.intro` | 1426 | `…ve münhalleri…` | `…` (yalnız ilanlar) | pleonazm |
+| 10 | `JobTypePage.metaDescription` | 1436 | `…iş ilanları ve münhaller…` | `…iş ilanları…` | pleonazm |
+| 11 | `JobTypePage.intro` | 1437 | `…ve münhalleri…` | `…` (yalnız ilanlar) | pleonazm |
+
+`JobsMeta.title` bilerek `münhal` tutar: `kktc münhal` #190'un **birincil** anahtar
+kelimesi; kaybedilirse arama görünürlüğü düşer. Artık `iş ilanı` ile çift değil.
+
+### Boyut taraması (AUDIT.md)
+
+| Alan | Sonuç |
+|---|---|
+| Doğruluk / anlam (pleonazm) | 11 bulgu, 11 düzeltildi (yukarıda) |
+| Yazım — düz `'` ile Türkçe ek | 21 (`Kuzey Kıbrıs'taki` vb.) — **mevcut evrensel kural**, her dosyada düz kesme; bulgu değil |
+| Yazım — kıvrık `’` ile Türkçe ek | 25 — aynı kuralın kıvrık kanadı; karışık ama tutarlı-çift, bulgu değil |
+| Noktalama — noktalama öncesi boşluk / çift boşluk | 0 |
+| Yinelenen sözcük (`\b(\p{L}{3,})\s+\1\b`) | 0 (tek "eşleşme" yanlış pozitif: "İsterseniz öneriyi") |
+| Parantez dengesi | 0 |
+| Marka tutarlılığı (`İşBul KKTC` yazımı) | 0 ihlal |
+| Placeholder paritesi (6 dil) | `{district}`/`{type}`/`{year}`/`{count}` hepsi korundu |
+| İç sistem sözlüğü (yasak liste) | 0 |
+| `src/content/**` (guides/editorial/ai-visibility tr) | 0 pleonazm; `src/content/ai-visibility/{geo-audit.test.ts,interface-catalog.ts}` **bakılmadı** — LANE-GEO üretimi |
+| Diğer 5 dil (en/de/ru/el/fa) | `jobs and vacancies` / `Stellenangebote und Jobs` vb. — **dilsel olarak doğal** (İngilizce/Almanca'da iki terim ayrı kayıt türü); sahip talebi tr kapsamında; bulgu değil, gözlem |
+
+### Ratchet
+
+`src/i18n/message-catalogs.test.ts` — yeni test: `münhal` ile `iş ilan` aynı
+yaprakta geçemez. Kırmızı→yeşil kanıtlı: `Meta.description`'a pleonazm enjekte
+edilince `✖ …: Meta.description`, geri alınınca `✔`. (Dil-bağımsız: `tr`
+haritası üzerinde çalışır, `toLocaleLowerCase("tr")`.)
+
+### Doğrulama
+
+- Kapılar: lint ✅, typecheck ✅, check:frontend-source ✅, test:unit 705 ✔ / 0 ✖
+  (4 `⚠` todo = #367 pini, bu lane'in dışı), test:security ✅, test:integration ✅.
+- **E2E çalıştırılmadı** — mikro-denetim kapsamı 4 statik kapı; ayrıca e2e pinleri
+  LANE-QA'nın dosyalarında (aşağıda devir).
+
+### Devir (agent:handoff → LANE-QA)
+
+`tests/**` LANE-QA'nın (sahiplik tablosu); İÇERİK oraya yazmaz. 3 e2e pinini
+güncellemek gerekir (yoksa e2e kırmızı). Ayrıca bir TASARIM dosyası e2e pini var:
+
+| Dosya:satır | Eski pin | Yeni değer |
+|---|---|---|
+| `tests/e2e/jobs.spec.ts:25` | `/KKTC Güncel İş İlanları ve Münhaller/` | `/KKTC Güncel Münhaller/` |
+| `tests/e2e/seo.spec.ts:634` | `${district.tr} İş İlanları ve Münhaller` | `${district.tr} İş İlanları` |
+| `tests/e2e/seo.spec.ts:16` | `…güncel iş ilanları, münhal ve kariyer fırsatları. İş ilanlarını…` | `…güncel iş ilanları ve kariyer fırsatları. İlanları…` |
+| `tests/e2e/home.spec.ts:74` | `KKTC iş ilanları, münhal ve kariyer fırsatları tek yerde.` | `KKTC iş ilanları, kariyer ve gelişim fırsatları tek yerde.` |
+
+`tests/e2e/home.spec.ts` LANE-QA'ya aittir; `jobs/seo.spec.ts` de `tests/**`
+altında LANE-QA'ya aittir (yalnız `accessibility.spec.ts` TASARIM'a bırakılmış).
+Ek gözlem: `src/features/identity/auth-metadata.test.ts:8` bir **yorumda** eski
+`Meta.title`'ı örnek gösteriyor (assertion değil) — LANE-AUTH dosyası, metin
+güncelliği için not.
+
