@@ -242,7 +242,15 @@ function sectionLines(text: string): SectionSplit {
     if (heading) {
       seenHeading = true;
       activeSection = heading.section === "ignored" ? null : heading.section;
-      if (heading.section !== "ignored" && heading.remainder) {
+      // A heading may carry its first entry inline ("DENEYİM: Acme - Dev -
+      // 2019 - 2022"), but the remainder can also be a personal-data line
+      // ("EĞİTİM: Doğum Tarihi: 1995"); it reaches the section by the same
+      // route as a body line, so it needs the same filter (#367, #208 §B6).
+      if (
+        heading.section !== "ignored" &&
+        heading.remainder &&
+        !isSectionPersonalData(heading.remainder)
+      ) {
         const lines = sections.get(heading.section) ?? [];
         lines.push(heading.remainder);
         sections.set(heading.section, lines);
@@ -251,6 +259,7 @@ function sectionLines(text: string): SectionSplit {
     }
 
     if (activeSection) {
+      if (isSectionPersonalData(line)) continue;
       const lines = sections.get(activeSection) ?? [];
       lines.push(line);
       sections.set(activeSection, lines);
@@ -409,9 +418,16 @@ const personalDataWords = new Set([
 
 /** True when a single word is a personal-data token or stem. */
 function isPersonalDataToken(word: string): boolean {
-  return (
-    personalDataWords.has(word) ||
-    personalDataStems.some((stem) => word.startsWith(stem))
+  // The vocabulary is written in ASCII ("iban"); `wordsOf` lower-cases with the
+  // Turkish locale, which turns an ASCII capital I into a dotless "ı" ("IBAN" →
+  // "ıban"). Fold it back before matching, or every ASCII token that carries an
+  // I slips through ("IBAN: TR12 3456" became a job description — #208 §B6).
+  const folded = word.replace(/ı/g, "i");
+  const candidates = folded === word ? [word] : [word, folded];
+  return candidates.some(
+    (candidate) =>
+      personalDataWords.has(candidate) ||
+      personalDataStems.some((stem) => candidate.startsWith(stem)),
   );
 }
 
@@ -456,6 +472,44 @@ function isPersonalDataLine(line: string): boolean {
   const labelIsTokenOnly =
     labelWords.length > 0 && labelWords.every(isPersonalDataToken);
   return labelIsTokenOnly || !hasStrongEntrySeparator(line);
+}
+
+/**
+ * The same question as `isPersonalDataLine`, asked where the answer must also
+ * keep a bare role line. A section's body has no other signal: `sectionLines`
+ * pushes each line straight to the section parser, so a detail that reaches it
+ * is written into `description`/`institution`/`name`/`skills` and then copied
+ * into the profile by `mergeResumeDraft` (#367, #208 §B6).
+ *
+ * `isPersonalDataLine` alone is too eager here. A multi-line entry puts the role
+ * on a line of its own ("Doğum Kliniği Hemşiresi"), and a role line is exactly
+ * the shape of an unlabelled detail: one field, no separator, a personal-data
+ * word inside it. Dropping every such line left the employer in the role box —
+ * or, when the entry carried no date, dropped the role entirely. So the section
+ * only drops a line when it *names* the detail: a token-only label
+ * ("Telefon: …"), a line carrying its own year ("1995-2000 doğumlu"), or a
+ * contact value. A bare title that merely contains the word is kept.
+ */
+function isSectionPersonalData(line: string): boolean {
+  // A contact line — phone, e-mail, URL — is personal data wherever it sits.
+  // The loose path already drops it through `isContactLine`; the section path
+  // had no equivalent, so "Cep: 0533 123 45 67" under "DENEYİM" reached
+  // `description` and a phone number landed in the profile (#208 §B6).
+  if (isContactLine(line)) return true;
+
+  if (!isPersonalDataLine(line)) return false;
+
+  const [firstField = ""] = splitEntryParts(line);
+
+  // A field that is nothing but the token ("Telefon:", "Adres | Lefkoşa") names
+  // the detail itself, wherever it sits; no role reads that way.
+  const labelWords = wordsOf(firstField.split(/[:：]/)[0]);
+  if (labelWords.length > 0 && labelWords.every(isPersonalDataToken)) return true;
+
+  // A line that carries its own year in its first field ("1995-2000 doğumlu",
+  // "1995-2000 doğumlu, Lefkoşa") is a detail: a role header states role and
+  // employer, and its dates sit on a line of their own, not inside the title.
+  return singleYearPattern.test(firstField);
 }
 
 /**
