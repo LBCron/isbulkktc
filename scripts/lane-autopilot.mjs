@@ -264,6 +264,36 @@ async function resumeSandbox(sandboxId) {
 }
 
 /**
+ * Delete paused sandboxes that belong to no live lane.
+ *
+ * Sandboxes accumulate: the daily creation quota is 20, and paused ones still
+ * count against the total. Twenty-six had built up, which blocks new lanes with
+ * "Daily sandbox limit of 20 reached" — a quota failure that looks like a code
+ * error. Pausing is not enough; only deletion frees the slot.
+ *
+ * A sandbox is kept when it belongs to a lane that is currently running, or to
+ * a lane that still has work. Everything else is a leftover.
+ */
+async function pruneSandboxes(keepIds, dryRun) {
+  const { ok, body } = await api('/sandboxes/search?limit=100');
+  if (!ok || !body) return { deleted: 0, kept: 0 };
+  const paused = (body.items ?? []).filter((s) => s.status === 'PAUSED');
+  let deleted = 0;
+  for (const sandbox of paused) {
+    if (keepIds.has(sandbox.id)) continue;
+    if (dryRun) {
+      deleted += 1;
+      continue;
+    }
+    const { ok: removed } = await api(`/sandboxes/${sandbox.id}`, {
+      method: 'DELETE',
+    });
+    if (removed) deleted += 1;
+  }
+  return { deleted, kept: paused.length - deleted };
+}
+
+/**
  * Poll until a resumed sandbox reports RUNNING, or give up.
  *
  * `resume` returns immediately while the sandbox is still STARTING; a send in
@@ -591,6 +621,19 @@ async function main() {
   }
 
   if (dryRun) return;
+
+  // Reclaim sandbox slots before starting work. Paused sandboxes count against
+  // the daily creation quota, so a backlog blocks new lanes with a quota error
+  // that reads like a code failure. Keep the ones a live lane owns.
+  const liveSandboxIds = new Set(
+    [...idle, ...paused]
+      .filter((c) => c.sandbox_id && working.has(String(c.title ?? '').replace(/^LANE-/, '')))
+      .map((c) => c.sandbox_id),
+  );
+  const pruned = await pruneSandboxes(liveSandboxIds, dryRun);
+  if (pruned.deleted > 0) {
+    console.log(`\nsandbox quota: deleted ${pruned.deleted} leftover(s), kept ${pruned.kept}`);
+  }
 
   for (const d of allowed) {
     try {

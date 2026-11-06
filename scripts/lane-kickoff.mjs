@@ -57,6 +57,17 @@ export function kickoff(name, lane, context = {}) {
       'gözlenen, beklenen, etki) ve PR gövdesine tablo hâlinde yaz. Atladığın ' +
       'dosya varsa "bakılmadı" diye işaretle — sessizce geçme. Tek bir bug ' +
       'düzeltip durmak yeterli değil; alanı tara.',
+    // Depth: the first waves produced many small PRs (one fix, one doc note)
+    // and the owner asked for substantial work instead. A pass should leave the
+    // domain measurably better, not incrementally nudged.
+    'DERİNLİK: küçük, tek satırlık PR üretme. Bir geçişte alanını **ölçülebilir ' +
+      'şekilde** ilerlet: aynı sınıftan birden çok bulguyu birlikte kapat, kök ' +
+      'nedeni düzelt (belirtiyi değil), ve her düzeltmeye test ekle. Şu üçünü ' +
+      'sor ve yanıtla: (1) bu sorunun kök nedeni ne, başka nerede tekrarlıyor? ' +
+      '(2) aynı düzeltmeyi gerektiren başka dosya/rota/ekran var mı? ' +
+      '(3) gelecekte tekrar etmesini ne engeller (test, guard, tip)? ' +
+      'Tek bir belirti düzeltip geçmek yerine sınıfı kapat. Rapor et: kaç dosya ' +
+      'tarandı, kaç bulgu, kaçı düzeltildi, hangi test eklendi.',
     // Autonomy: the agent must verify its own work before opening the PR, and
     // retry a bounded number of times. The orchestrator re-spawns a failed lane
     // with the failure detail, so a fix round is a fresh, informed attempt.
