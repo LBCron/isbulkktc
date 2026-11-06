@@ -715,7 +715,7 @@ yoksa "hizala" önerisi imkânsız çıkar.
 ### Edge mikro-denetim tur 27 — `%2F` mekanizması + kural-bazlı WAF asimetrisi (2026-11-06)
 
 ```
-Lane: LANE-CLOUDFLARE  Branch: lane/cloudflare  PR: #<bu PR>
+Lane: LANE-CLOUDFLARE  Branch: lane/cloudflare  PR: #440
 Değişen dosyalar: docs/cloudflare.md, docs/lanes/02-cloudflare.md
 Kontroller: lint ✅  typecheck ✅  check:frontend-source ✅  test:unit ✅
             (CI: Static/Database/E2E — PR açılışında)
