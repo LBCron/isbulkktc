@@ -2,9 +2,11 @@ name: isbulkktc CI
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
+  # No run on push to main. A squash merge reproduces the exact tree the PR
+  # already verified, so re-running the full suite on main doubles the CI cost
+  # (and the Docker image pulls) for the same result. Production is checked by
+  # verify-production-deployment.yml, which confirms the live site serves the
+  # pushed commit — a stronger signal than re-testing the tree.
 
 permissions:
   contents: read
@@ -123,9 +125,12 @@ jobs:
         with:
           version: 2.120.0
 
+      # Studio (web UI) and imgproxy (image resizing) are not needed by any
+      # test, but every job pulls them — they are among the biggest images
+      # and the quickest way to exhaust Docker Hub's anonymous pull limit.
       - name: Start the seeded local Supabase stack
         id: supabase_start
-        run: bun run db:start
+        run: bun run db:start -- -x studio,imgproxy
 
       - name: Apply migrations and run pgTAP tests
         run: bun run test:db
@@ -202,9 +207,12 @@ jobs:
         with:
           version: 2.120.0
 
+      # Studio (web UI) and imgproxy (image resizing) are not needed by any
+      # test, but every job pulls them — they are among the biggest images
+      # and the quickest way to exhaust Docker Hub's anonymous pull limit.
       - name: Start the seeded local Supabase stack
         id: supabase_start
-        run: bun run db:start
+        run: bun run db:start -- -x studio,imgproxy
 
       - name: Configure local Supabase credentials for E2E
         shell: bash
