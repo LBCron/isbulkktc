@@ -5,6 +5,7 @@ import {
   evaluateIndexNowKey,
   evaluateIndexability,
   extractPageSignals,
+  findCanonical,
   hasLocalePrefix,
   isPathAllowed,
   isSameOrigin,
@@ -162,6 +163,11 @@ test("page signals are read from either attribute order", () => {
   const b = extractPageSignals('<link href="https://isbulkktc.com" rel="canonical">');
   assert.equal(b.canonical, "https://isbulkktc.com");
   assert.equal(b.metaRobots, null);
+  // Both directives are read and combined, so a `noindex` in either is visible.
+  const c = extractPageSignals(
+    '<meta name="robots" content="index, follow"><meta name="googlebot" content="noindex">',
+  );
+  assert.match(c.metaRobots, /noindex/);
 });
 
 test("meta directives are read in either attribute order and either quote style", () => {
@@ -260,4 +266,72 @@ test("sampling keeps the first URL and respects the size", () => {
   assert.ok(sample.length <= 8);
   assert.equal(sample[0], `${ORIGIN}/p0`);
   assert.deepEqual(sampleUrls([{ loc: `${ORIGIN}/only` }], 8), [`${ORIGIN}/only`]);
+});
+
+test("a robots `none` directive blocks indexing, like noindex", () => {
+  // Regression: `none` is Google's shorthand for `noindex, nofollow`, so a page
+  // carrying it must not read as indexable just because the literal `noindex`
+  // is absent.
+  const loc = `${ORIGIN}/en`;
+  const base = { status: 200, loc, origin: ORIGIN };
+  assert.equal(evaluateIndexability({ ...base, canonical: loc, metaRobots: "none" }).state, "noindex");
+  assert.equal(evaluateIndexability({ ...base, canonical: loc, xRobotsTag: "none" }).state, "noindex");
+  // A value that merely *contains* `none` as a substring must not trip it.
+  assert.equal(evaluateIndexability({ ...base, canonical: loc, metaRobots: "noindex, none" }).state, "noindex");
+  assert.equal(evaluateIndexability({ ...base, canonical: loc, metaRobots: "nofollow" }).ok, true);
+});
+
+test("a googlebot-only noindex blocks indexing, and the site's index hint does not", () => {
+  // Regression: the site emits `<meta name="googlebot" content="index, follow…">`
+  // on every page. Reading only the `robots` tag meant a `googlebot`-only
+  // `noindex` was invisible — and, worse, the verifier could not see the
+  // `googlebot` tag the site actually ships.
+  const loc = `${ORIGIN}/en`;
+  const canonical = `<link rel="canonical" href="${loc}">`;
+  const noindex = verdictForPage({
+    status: 200,
+    body: `${canonical}<meta name="googlebot" content="noindex">`,
+    xRobotsTag: null,
+    loc,
+    origin: ORIGIN,
+  });
+  assert.equal(noindex.ok, false);
+  assert.equal(noindex.state, "noindex");
+
+  const siteDefault = verdictForPage({
+    status: 200,
+    body: `${canonical}<meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large">`,
+    xRobotsTag: null,
+    loc,
+    origin: ORIGIN,
+  });
+  assert.equal(siteDefault.ok, true);
+
+  // Both tags together: the most restrictive wins, so a robots `noindex` beside
+  // an indexable googlebot hint is still noindex.
+  const combined = verdictForPage({
+    status: 200,
+    body: `${canonical}<meta name="robots" content="noindex"><meta name="googlebot" content="index, follow">`,
+    xRobotsTag: null,
+    loc,
+    origin: ORIGIN,
+  });
+  assert.equal(combined.state, "noindex");
+});
+
+test("the canonical link is read in either attribute order and quote style", () => {
+  // Regression: the old regexes assumed `rel` before `href` with double quotes,
+  // so `<link href=… rel=canonical>` (Next's emission order) read as no canonical.
+  assert.equal(findCanonical(`<link rel="canonical" href="${ORIGIN}/en">`), `${ORIGIN}/en`);
+  assert.equal(findCanonical(`<link href="${ORIGIN}/en" rel="canonical">`), `${ORIGIN}/en`);
+  assert.equal(findCanonical(`<link rel='canonical' href='${ORIGIN}/en'>`), `${ORIGIN}/en`);
+  // A `rel` token list that includes `canonical` counts.
+  assert.equal(findCanonical(`<link rel="alternate canonical" href="${ORIGIN}/en">`), `${ORIGIN}/en`);
+  // An unrelated rel must not be mistaken for the canonical.
+  assert.equal(findCanonical(`<link rel="alternate" href="${ORIGIN}/de">`), null);
+  assert.equal(findCanonical("<link rel=\"stylesheet\" href=\"/x.css\">"), null);
+  // `data-rel` contains `rel` but is a different attribute; a word-boundary
+  // match accepted it and read an unrelated link as the canonical.
+  assert.equal(findCanonical(`<link data-rel="canonical" href="https://evil.example/x">`), null);
+  assert.equal(extractPageSignals(`<link href="${ORIGIN}/en" rel="canonical">`).canonical, `${ORIGIN}/en`);
 });

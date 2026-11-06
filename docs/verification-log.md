@@ -233,3 +233,59 @@ doğrulanmamış iddia yok. `/en|/de|/ru/jobs/<slug>` **200 + geri canonical**
 Testler: `scripts/verify-indexing.test.mjs` 16/16, `scripts/verify-auth-config.test.mjs`
 3/3. Kapılar: lint/typecheck/check:frontend-source ✅, `test:unit` 589 (585 pass,
 0 fail, 4 todo), `test:security` 77 (75 pass, 0 fail, 2 todo).
+
+## Tur 6 — ölçüm araçlarının kendi kusurları, devam (2026-11-05)
+
+Tur 5'in kapanışından sonra araçlar baştan denetlendi. Dört yeni kusur
+çıktı; üçü `verify-indexing.mjs`, biri `verify-deliverability.mjs`. Yine
+**araç kusuru sonuç gibi okunmamalı** sınıfı: araç, tarayıcının okuduğu sinyali
+yanlış okuyup siteyi olduğundan farklı raporluyordu.
+
+| # | Dosya | Boyut | Gözlenen | Beklenen | Etki | Düzeltme |
+|---|---|---|---|---|---|---|
+| 1 | `verify-indexing.mjs` | doğruluk | `<meta name="robots" content="none">` → `indexable` | Google: `none` ≡ `noindex, nofollow` → `noindex` | `none` ile deindexlenmiş sayfa "indexable" sanılır | `evaluateIndexability` `noindex\|none` |
+| 2 | `verify-indexing.mjs` | doğruluk | yalnız `<meta name="googlebot" content="noindex">` → `indexable` | Google `robots` + `googlebot`'u birleştirir, en kısıtlayıcı kazanır | site her sayfada `googlebot` etiketi yayıyor; yalnız-googlebot `noindex` görünmez | `extractPageSignals` iki etiketi birleştirir |
+| 3 | `verify-indexing.mjs` | doğruluk | `findCanonical` yalnız `rel` önce + çift tırnak; `data-rel="canonical"` eşleşir | öznitelik sırası/tırnak bağımsız; `data-rel` ≠ `rel` | canonical okunmaz (yanlış `FAIL`) ya da yabancı link canonical sanılır | `tagAttr` `(?:^\|\s)` sınırı; `findCanonical` |
+| 4 | `verify-deliverability.mjs` | hata yolu | DoH `Status` yok sayılıyordu; SERVFAIL/REFUSED (HTTP 200, `Answer` yok) → "absent" | NXDOMAIN (3) absent; diğer sıfır-dışı `Status` = error | çözümleyici hatası kayıt yokmuş gibi → yanlış `FAIL`/`clean` | `interpretDnsResponse(Status, Answer)` |
+
+### Kanıt (dosya:satır, gözlenen → beklenen)
+
+- **#1:** Google robots meta referansı: *"none — Equivalent to noindex,
+  nofollow"*. Önce: `evaluateIndexability({metaRobots:"none"})` → `ok:true`.
+  Sonra: `state:"noindex"`.
+- **#2:** Google robots meta referansı: *"To specify multiple crawlers
+  individually, use multiple robots meta tags"* ve *"The page containing these
+  meta tags will be interpreted as having a noindex, nofollow rule"*. Canlı site
+  her sayfada `<meta name="googlebot" content="index, follow, …">` yayıyor —
+  araç bu etiketi hiç okumuyordu.
+- **#3:** `findCanonical('<link data-rel="canonical" href="https://evil.example/x">')`
+  → önce `"https://evil.example/x"`, sonra `null`. `\b` sınırı `data-rel`
+  içindeki `rel`'e uyuyordu.
+- **#4:** `interpretDnsResponse(2, undefined)` → önce `{answers:[],error:null}`
+  (absent), sonra `{answers:[],error:"DNS Status 2"}` (error). RFC 1035 §4.1.1
+  RCODE'ları: 0 NOERROR, 2 SERVFAIL, 3 NXDOMAIN, 5 REFUSED. Google DoH JSON
+  dokümanı `Status`'u "Standard DNS response code" olarak tanımlar ve başarısız
+  yanıtı HTTP 200 + `Status: 2` olarak gösterir.
+
+### Canlı ölçüm (değişmedi)
+
+```
+node scripts/verify-indexing.mjs   → 0 fail / 0 warn / 0 skip
+node scripts/verify-deliverability.mjs
+  WARN SPF   kök kayıt göndereni yetkilendirmiyor; Return-Path alt alanı yetkili + DMARC hizalı
+  PASS SPF   send.isbulkktc.com (Return-Path) yetkili
+  PASS DKIM  resend._domainkey, 216 karakter
+  WARN DMARC p=none (yalnız izler, uygulamaz)
+  PASS MX    3 Cloudflare route
+  WARN Blocklists dbl.spamhaus.org + surbl + spamcop temiz; zen.spamhaus.org sorgulanamadı
+  SKIP Resend bu kabukta RESEND_API_KEY yok (tur 5'te yanlış anahtar → FAIL, #186)
+```
+
+Bu turda `dbl.spamhaus.org` sentinel kapısını geçti (temiz), `zen.spamhaus.org`
+hâlâ reddediyor — sentinel kapısı ikisini doğru ayırıyor.
+
+Katman 2/3 (gerçek gönderim, spam skoru) hâlâ #186 + #170 yüzünden ölçülemez;
+doğrulanmamış iddia yok.
+
+Testler: `verify-indexing.test.mjs` 19/19, `verify-deliverability.test.mjs` 11/11,
+`verify-auth-config.test.mjs` 3/3 (toplam 33).

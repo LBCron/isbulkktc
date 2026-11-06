@@ -62,6 +62,22 @@ const FROM_DOMAIN = DOMAIN;
  */
 const RETURN_PATH_SUBDOMAINS = ["send", "rsend"];
 
+/**
+ * Turns a Google DoH JSON response into the `{ answers, error }` shape the rest
+ * of the script classifies. The JSON resolver reports DNS RCODEs in `Status`
+ * (RFC 1035 §4.1.1), not as HTTP errors: a SERVFAIL or REFUSED answer is HTTP
+ * 200 with `Status` 2/5 and no `Answer`, which the old code read as an empty
+ * answer set — an absent record. NXDOMAIN (`Status` 3) *is* an absent name; any
+ * other non-zero code is a resolver failure and must read as `error`, never as
+ * `absent` (a false FAIL) or, downstream, `clean` (a false PASS).
+ */
+export function interpretDnsResponse(status, answerData) {
+  const code = Number(status ?? 0);
+  if (code === 3) return { answers: [], error: null };
+  if (code !== 0) return { answers: [], error: `DNS Status ${code}` };
+  return { answers: (answerData ?? []).map((a) => String(a?.data ?? "")), error: null };
+}
+
 /** Resolve a DNS record through Google's JSON resolver (no credentials). */
 async function resolve(name, type) {
   const url = `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`;
@@ -69,7 +85,7 @@ async function resolve(name, type) {
     const response = await fetch(url, { headers: { accept: "application/dns-json" } });
     if (!response.ok) return { answers: [], error: `HTTP ${response.status}` };
     const body = await response.json();
-    return { answers: (body.Answer ?? []).map((a) => String(a.data ?? "")), error: null };
+    return interpretDnsResponse(body.Status, body.Answer);
   } catch (error) {
     return { answers: [], error: error.message };
   }
