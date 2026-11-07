@@ -1413,3 +1413,84 @@ Bu turda taranan: `tests/security/cookie-inventory.test.ts` (yeni),
 `docs/threat-model.md`, `tests/security/README.md`, `docs/lanes/09-guvenlik.md`.
 `src/app/**` ve `supabase/**` bu turda **bakılmadı** (sahiplerine ait; CI yeşil).
 Açık `todo`'lar değişmedi: #457, #206, #102, #418 §6.
+
+---
+
+## Tur 40 — micro-denetim: işveren doğrulama sınırı + `verified` çıkmazı (#418 hesap yolculuğu)
+
+Sahibin öncelikli talimatı #418 ("hesap kayıt + tüm hesap işlemleri + çerezler
+uçtan uca mükemmel") kapsamında işveren↔aday profil ayrımı ve "şirket profilini
+incelemeye gönder" akışı uçtan uca incelendi.
+
+### Bulgu (kanıtlı)
+
+**B-1 — İşveren self-servis çıkmazı (KRİTİK).** `companies.verification_status`
+yayın kapısıdır (varsayılan `pending`) ama **hiçbir kod/migration onu `verified`
+yapmıyor**.
+
+- Kapı isteyen: `publish_approved_job` → `20261020192000_v4_package_entitlements.sql:48`;
+  `search_public_jobs` platform dalı → `20261021110000_v4_public_source_jobs_rpc.sql:84`;
+  `20261020200000_v4_public_job_listing_rpc.sql:78,219`.
+- Yazan: **yok** (`grep -rn "update public.companies" -A3 supabase/migrations/*.sql
+  | grep verification_status` → boş). `admin_list_verified_companies` yalnız okuyucu.
+- Onay formu bilinçli dokunmuyor: "Onay profil bilgisini yayımlar; şirketin ayrı
+  doğrulama durumunu değiştirmez".
+
+**Etki.** Self-servis işveren profili onaylansa bile ilan yayınlayamaz. Kaynak-site
+ilanları etkilenmez (`is_public_source_job`).
+
+**B-2 — Gönderim kimseyi bilgilendirmiyor.** `submitCompanyProfile`
+(`src/features/companies/actions.ts:108-218`) yalnız `company_profile_submissions`'a
+`pending` yazar; `mailer` çağrı yeri `companies`'te **yok**. Admin yoklamadıkça
+gönderim görülmez → "gönderdim, nereye gitti bilmiyorum".
+
+**B-3 — `info@isbulkktc.com` belirsiz.** MX = Cloudflare Email Routing, SPF yalnız
+`_spf.mx.cloudflare.net`; Resend `include` yok, DMARC `p=none`. Repoda yalnız statik
+referans. (SPF/Resend yarısı **#170**'te takip ediliyor — yeniden açılmadı.)
+
+### Düzeltme
+
+`tests/security/employer-verification-surface.test.ts` (yeni) — uygulanan yarıyı
+kapılar:
+
+1. `publish_approved_job` hâlâ `verification_status <> 'verified'` reddediyor;
+2. `search_public_jobs` **platform** dalı hâlâ `verified` istiyor (kaynak-site dalı
+   kasıtlı olarak `is_public_source_job` kullanır — tutarsızlık değil);
+3. hiçbir istemci rolüne `public.companies` üzerinde `update` yok;
+4. `admin_list_verified_companies` platform-admin korumasını koruyor;
+5. **todo:** şirketi `verified`'a taşıyan kod yolu (B-1; sahibi LANE-SUPABASE + LANE-URUN).
+
+`tests/security/README.md` bulgular tablosuna B-1/B-2/B-3 eklendi.
+
+### Kanıt (mutation, üçü de kırmızı)
+
+| Mutasyon | Kırmızı düşen test |
+|---|---|
+| `publish` kapısı `<> 'verified'` → `<> 'pending'` | "publish_approved_job refuses…" |
+| `companies`'e `grant update … to authenticated` | "no client role is granted update…" |
+| Sahte `update public.companies set verification_status` + todo kaldırıldı | "some code path promotes…" |
+
+Üç mutasyon da geri alındı; çalışma ağacı temiz.
+
+### Kapılar
+
+`lint` / `typecheck` / `check:frontend-source` temiz.
+`test:security` **159 test / 152 pass / 0 fail / 7 todo** (154→159).
+`test:unit` **743 / 741 pass / 2 todo** (değişmedi).
+
+### Bakılmayan
+
+Taranan: `tests/security/**` (tüm katman + README), `docs/threat-model.md`,
+`docs/data-retention.md`, `docs/lanes/09-guvenlik.md`; bulgu için
+`supabase/migrations/20261020192000`, `20261021110000`, `20261020200000`,
+`20261020194000`, `src/features/companies/actions.ts`, `src/server/email/mailer.ts`,
+`src/server/dal/jobs.ts`.
+`src/app/**` ve diğer `supabase/**` dosyaları bu turda **bakılmadı** (sahiplerine
+ait). Erişilebilirlik/kontrast/RTL bu lane'de kapsam dışı (görsel yüzey yok).
+
+### Devir (kendi alanım dışı)
+
+- **#464** — `verification_status` yazarı yok (LANE-SUPABASE, `agent:handoff`).
+- **#465** — gönderim bildirimi yok (LANE-URUN, `agent:handoff`).
+- **#461** — QR/PWA görünürlüğü (LANE-TASARIM; bu PR'a alınmadı, dosyalar başka lane'in).
+- SPF/Resend/DMARC: **#170** (zaten açık).
