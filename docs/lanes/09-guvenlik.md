@@ -1497,6 +1497,23 @@ ait). Erişilebilirlik/kontrast/RTL bu lane'de kapsam dışı (görsel yüzey yo
 
 ## Tur 41 — micro-denetim: hesap yaşam döngüsü sınırı + 12-brief denetim kanıtı (#418)
 
+```
+Lane: LANE-GÜVENLİK            Branch: lane/guvenlik-41 (tur 41) + lane/guvenlik-42 (bu rapor)
+PR: #466 (tur 41, MERGED → 0b1af6c0) ; bu rapor bloğu için ayrı PR
+Değişen dosyalar: tests/security/account-lifecycle-surface.test.ts,
+                  docs/lanes/09-guvenlik.md
+Çalıştırılan kontroller: lint ✓ / typecheck ✓ / check:frontend-source ✓ /
+  test:unit ✓ (743 test, 741 pass, 0 fail, 2 todo) /
+  test:security ✓ (165 test, 154 pass, 0 fail, 11 todo) /
+  CI #466: Static ✓, Database ✓, E2E 1-4/4 ✓, aggregator ✓
+Canlıya dokundu mu: HAYIR (yalnız salt-okuma curl: başlık/HTTP kodu ölçümü)
+Sahibin yapması gerekenler: #467 (askıya alma yazarı) + #400 (silme) kararını
+  LANE-SUPABASE+LANE-AUTH'a ver; M-03 repo kısmı #435'te.
+Sonraki lane için notlar: "Kapıların kapısı" deseni — todo testin vakumlu
+  olmadığını mutasyonla kanıtla (sahte yazar ekle → fonksiyonel döndüğünü gör).
+```
+
+
 Bu tur iki iş yapıldı: (1) #418 "hesap kayıt + tüm hesap işlemleri + çerezler
 uçtan uca mükemmel" kapsamında **hesap yaşam döngüsü** (askıya alma / kapatma /
 silme) güvenlik sınırı ölçüldü ve kapıya bağlandı; (2) sitem yöneticisinin
