@@ -689,12 +689,17 @@ tests/` → **0** eşleşme.
   **kırmızı**; probe silindiğinde yeşil. Dedektör, `cookies()`'e bağlanan
   değişkeni adından bağımsız izler (rename'e dayanıklı) ve `request.cookies.set`
   (gelen istek çerezi, yanıt çerezi değil) ile salt-okuma `.get`'i dışlar.
-- **İkinci tur: kendi dedektörümde kör nokta (ölçüldü, kapatıldı).** İlk sürüm
-  yalnız *bağlanmış* adı (`const store = await cookies()`) izliyordu; **satır-içi**
-  `(await cookies()).set("ib_evil", "1")` biçimini kaçırıyordu — mutant yeşil
-  kaldı. Yeni bir sunucu çerezi bu biçimde eklenirse ratchet görmezdi. Regex'e
-  ayrı bir dal eklendi; aynı mutant artık envanter + "options nesnesi" testlerini
-  **kırmızı** yapıyor, self-test sabitlendi.
+- **İkinci tur: kendi dedektörümde iki kör nokta (ölçüldü, kapatıldı).**
+  (a) İlk sürüm yalnız *bağlanmış* adı (`const store = await cookies()`) izliyordu;
+  **satır-içi** `(await cookies()).set("ib_evil", "1")` kaçıyordu — mutant yeşil.
+  (b) Ardından optional-chaining/non-null (`jar?.set(…)`, `jar!.set(…)`) kaçtı —
+  mutantlar yine yeşil. Regex'e iki ayrı dal (`[?!]?` opsiyonel operatör) eklendi;
+  üç mutant da artık envanter + "options nesnesi" testlerini **kırmızı** yapıyor,
+  her biri self-test ile sabitlendi.
+- **Bilinçli sınır (sessiz değil).** Metodu çağrıdan önce ayıran biçim
+  (`const { set } = cookieStore; set(…)`) görülmez; bugün böyle kod yok ve envanter
+  ratchet'i onu getiren yeni dosyayı zaten işaretler. `sb-*` kuralı
+  `@supabase/ssr`'nin kendi `name` parametre adına bağlı — tek ad-bağımlı yer.
 - **Kapsam kararı.** Yalnız `set` ratchet'lenir; `delete` bir çerezi yalnız
   sona erdirir, yeni bayrak yüzeyi açmaz. Bu tur **hiçbir dış sınırı değiştirmedi** —
   mevcut yazımlar zaten doğru bayraklıydı; kapatılan şey onları koruyan guard'ın

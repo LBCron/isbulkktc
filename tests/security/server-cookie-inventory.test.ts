@@ -65,7 +65,13 @@ type WriteSite = {
   firstArg: string;
   /** Top-level argument count of the call. */
   argCount: number;
-  /** The third argument when there is one, normalised. */
+  /**
+   * The third argument as an identifier, or `null` when it is an inline
+   * literal. `name` as `firstArg` is `@supabase/ssr`'s own parameter name in
+   * `setAll` (`for (const { name, value, options } of cookiesToSet)`), so the
+   * `sb-*` rule keys off that pair; renaming the loop binding would silently
+   * vacate it, which is the one place this ratchet is name-dependent.
+   */
   thirdArg: string | null;
 };
 
@@ -136,18 +142,24 @@ function cookieStoreReceivers(source: string): Set<string> {
  * `request` receiver is excluded — the response cookie is written separately
  * from the returned object.
  *
- * Three shapes are covered: `X.cookies.set/delete(…)` (a `NextResponse`), the
- * bare `cookies().set/delete(…)`, `<store>.set/delete(…)` where `<store>` is
- * any variable bound to `cookies()` in the same file, and the inline
- * `(await cookies()).set/delete(…)`. Tracking the bound name — rather than
- * hardcoding `cookieStore` — is what makes the ratchet survive a rename; the
- * inline form is a separate branch because there is no bound name to track.
+ * Four shapes are covered: `X.cookies.set/delete(…)` (any `NextResponse`, found
+ * by name, not by binding), the bare `cookies().set/delete(…)`, the inline
+ * `(await cookies()).set/delete(…)`, and `<store>.set/delete(…)` where
+ * `<store>` is any variable bound to `cookies()` in the same file. Tracking the
+ * bound name — rather than hardcoding `cookieStore` — is what makes the ratchet
+ * survive a rename; the inline form is a separate branch because there is no
+ * bound name to track. `?.` / `!.` are allowed between the receiver and `.set`,
+ * since `jar?.set(…)` and `jar!.set(…)` are the same write.
+ *
+ * Conscious limit: a method extracted before the call
+ * (`const { set } = cookieStore; set(…)`) is not seen — no such code exists
+ * today, and the inventory ratchet would flag any new file that introduces it.
  */
 function serverCookieWrites(source: string): WriteSite[] {
   const receivers = cookieStoreReceivers(source);
   const sites: WriteSite[] = [];
   const re =
-    /\(\s*await\s+cookies\s*\(\s*\)\s*\)\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*\.\s*cookies\s*\.\s*(set|delete)\s*\(|\bcookies\s*\(\s*\)\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*\.\s*(set|delete)\s*\(/g;
+    /\(\s*await\s+cookies\s*\(\s*\)\s*\)\s*[?!]?\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*[?!]?\s*\.\s*cookies\s*[?!]?\s*\.\s*(set|delete)\s*\(|\bcookies\s*\(\s*\)\s*[?!]?\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*[?!]?\s*\.\s*(set|delete)\s*\(/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(source)) !== null) {
     let receiver: string;
@@ -316,4 +328,15 @@ test("the write detector sees the inline await cookies() store (self-test)", () 
   assert.deepEqual(serverCookieWrites("(await cookies()).delete('ib');"), [
     { kind: "delete", receiver: "cookies()", firstArg: "'ib'", argCount: 1, thirdArg: null },
   ]);
+});
+
+test("the write detector sees optional-chaining and non-null writes (self-test)", () => {
+  for (const operator of ["?.", "!."]) {
+    const sites = serverCookieWrites(`const jar = await cookies();\njar${operator}set('ib_evil', '1');`);
+    assert.deepEqual(
+      sites.map((site) => [site.receiver, site.kind]),
+      [["jar", "set"]],
+      `a ${operator} write is the same write as a plain .set`,
+    );
+  }
 });
