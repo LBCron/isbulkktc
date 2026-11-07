@@ -667,3 +667,29 @@ eski kapsamda **sessizce yeşil** kalıyordu (ölçüldü: probe eklendiğinde e
   with ${process.env.GH_TOKEN}\`)`): eski ROOTS → 0 kırmızı; yeni ROOTS → kural 2
   kırmızı (`process.env.GH_TOKEN`). Probe silindi; 6/6 yeşil. Bir self-test ROOTS'un
   `scripts`'i içerdiğini ve kural 1'in içermediğini ratchet'ler.
+
+### 36. tur — sunucu-tarafı çerez yazım envanteri (sahiplik yolu: `tests/security/**`)
+
+`cookie-inventory.test.ts` yalnız **istemci** yazıcılarını (`document.cookie`)
+ratchet'liyordu; `session-cookie-flags.test.ts` ise yalnız *bilinen* Supabase
+çağrı noktalarının bayraklarını sabitliyordu. Hiçbiri **sunucu** yazım sitelerini
+(`cookies().set`, `response.cookies.set`, `cookieStore.set`) saymıyordu — yeni bir
+sunucu çerezi ya da bilinen bir dosyaya eklenen yeni bir yazım, `HttpOnly`/`Secure`/
+`SameSite` olmadan (runtime varsayılanıyla) yayına girebilir ve **hiçbir test
+kırmızıya dönmezdi**. Ölçüm: `grep -rn "cookieStore.set\|cookies()\.set\|\.cookies\.set("
+tests/` → **0** eşleşme.
+
+- **Kapatılan boşluk.** `tests/security/server-cookie-inventory.test.ts` eklendi:
+  (1) her sunucu `set` yazımının envanterde olduğunu ratchet'ler; (2) her yazımın
+  bir options nesnesi geçtiğini zorlar (çıplak iki-argümanlı yazım → kırmızı);
+  (3) `sb-*` yazımlarının bayrakları paylaşılan `options`/`cookieOptions`
+  kimliğinden aldığını zorlar (inline literalle çatallanmayı önler).
+- **Kanıt (mutation).** `src/__mutation-probe.ts` (`const store = await cookies();
+  store.set("ib_evil", "1")`) eklendiğinde envanter + "options nesnesi" testleri
+  **kırmızı**; probe silindiğinde 7/7 yeşil. Dedektör, `cookies()`'e bağlanan
+  değişkeni adından bağımsız izler (rename'e dayanıklı) ve `request.cookies.set`
+  (gelen istek çerezi, yanıt çerezi değil) ile salt-okuma `.get`'i dışlar.
+- **Kapsam kararı.** Yalnız `set` ratchet'lenir; `delete` bir çerezi yalnız
+  sona erdirir, yeni bayrak yüzeyi açmaz. Bu tur **hiçbir dış sınırı değiştirmedi** —
+  mevcut yazımlar zaten doğru bayraklıydı; kapatılan şey onları koruyan guard'ın
+  yokluğuydu.
