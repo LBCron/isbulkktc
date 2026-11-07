@@ -686,9 +686,15 @@ tests/` → **0** eşleşme.
   kimliğinden aldığını zorlar (inline literalle çatallanmayı önler).
 - **Kanıt (mutation).** `src/__mutation-probe.ts` (`const store = await cookies();
   store.set("ib_evil", "1")`) eklendiğinde envanter + "options nesnesi" testleri
-  **kırmızı**; probe silindiğinde 7/7 yeşil. Dedektör, `cookies()`'e bağlanan
+  **kırmızı**; probe silindiğinde yeşil. Dedektör, `cookies()`'e bağlanan
   değişkeni adından bağımsız izler (rename'e dayanıklı) ve `request.cookies.set`
   (gelen istek çerezi, yanıt çerezi değil) ile salt-okuma `.get`'i dışlar.
+- **İkinci tur: kendi dedektörümde kör nokta (ölçüldü, kapatıldı).** İlk sürüm
+  yalnız *bağlanmış* adı (`const store = await cookies()`) izliyordu; **satır-içi**
+  `(await cookies()).set("ib_evil", "1")` biçimini kaçırıyordu — mutant yeşil
+  kaldı. Yeni bir sunucu çerezi bu biçimde eklenirse ratchet görmezdi. Regex'e
+  ayrı bir dal eklendi; aynı mutant artık envanter + "options nesnesi" testlerini
+  **kırmızı** yapıyor, self-test sabitlendi.
 - **Kapsam kararı.** Yalnız `set` ratchet'lenir; `delete` bir çerezi yalnız
   sona erdirir, yeni bayrak yüzeyi açmaz. Bu tur **hiçbir dış sınırı değiştirmedi** —
   mevcut yazımlar zaten doğru bayraklıydı; kapatılan şey onları koruyan guard'ın

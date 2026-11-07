@@ -137,29 +137,33 @@ function cookieStoreReceivers(source: string): Set<string> {
  * from the returned object.
  *
  * Three shapes are covered: `X.cookies.set/delete(…)` (a `NextResponse`), the
- * bare `cookies().set/delete(…)`, and `<store>.set/delete(…)` where `<store>`
- * is any variable bound to `cookies()` in the same file. Tracking the bound
- * name — rather than hardcoding `cookieStore` — is what makes the ratchet
- * survive a rename.
+ * bare `cookies().set/delete(…)`, `<store>.set/delete(…)` where `<store>` is
+ * any variable bound to `cookies()` in the same file, and the inline
+ * `(await cookies()).set/delete(…)`. Tracking the bound name — rather than
+ * hardcoding `cookieStore` — is what makes the ratchet survive a rename; the
+ * inline form is a separate branch because there is no bound name to track.
  */
 function serverCookieWrites(source: string): WriteSite[] {
   const receivers = cookieStoreReceivers(source);
   const sites: WriteSite[] = [];
   const re =
-    /\b(\w+)\s*\.\s*cookies\s*\.\s*(set|delete)\s*\(|\bcookies\s*\(\s*\)\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*\.\s*(set|delete)\s*\(/g;
+    /\(\s*await\s+cookies\s*\(\s*\)\s*\)\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*\.\s*cookies\s*\.\s*(set|delete)\s*\(|\bcookies\s*\(\s*\)\s*\.\s*(set|delete)\s*\(|\b(\w+)\s*\.\s*(set|delete)\s*\(/g;
   let match: RegExpExecArray | null;
   while ((match = re.exec(source)) !== null) {
     let receiver: string;
     let kind: "set" | "delete";
     if (match[1] !== undefined) {
-      receiver = match[1];
-      kind = match[2] as "set" | "delete";
-    } else if (match[3] !== undefined) {
       receiver = "cookies()";
+      kind = match[1] as "set" | "delete";
+    } else if (match[2] !== undefined) {
+      receiver = match[2];
       kind = match[3] as "set" | "delete";
+    } else if (match[4] !== undefined) {
+      receiver = "cookies()";
+      kind = match[4] as "set" | "delete";
     } else {
-      receiver = match[4];
-      kind = match[5] as "set" | "delete";
+      receiver = match[5];
+      kind = match[6] as "set" | "delete";
       if (!receivers.has(receiver)) continue;
     }
     if (receiver === "request") continue;
@@ -300,4 +304,16 @@ test("the write detector follows the store whatever it is named (self-test)", ()
     [["jar", "'ib_evil'"]],
     "a renamed cookies() store must still be inventoried, and a non-store .set must not",
   );
+});
+
+test("the write detector sees the inline await cookies() store (self-test)", () => {
+  const sites = serverCookieWrites("(await cookies()).set('ib_evil', '1');");
+  assert.deepEqual(
+    sites.map((site) => [site.receiver, site.firstArg, site.argCount]),
+    [["cookies()", "'ib_evil'", 2]],
+    "an inline (await cookies()).set write has no bound name, so it needs its own branch",
+  );
+  assert.deepEqual(serverCookieWrites("(await cookies()).delete('ib');"), [
+    { kind: "delete", receiver: "cookies()", firstArg: "'ib'", argCount: 1, thirdArg: null },
+  ]);
 });
