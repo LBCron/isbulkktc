@@ -1062,3 +1062,76 @@ LANE-URUN/İÇERİK dosyalarında, bana devredilecek bir şey yok. Bu turun ası
 
 **Değişen dosyalar:** `src/styles/global.css`, `tests/unit/design-tokens.test.ts`,
 `src/components/home/sector-explorer.test.tsx` — üçü de bu lane'in kapsamında.
+
+---
+
+## LANE-TASARIM çalışma notları (2026-11-06, tur 14 — #436)
+
+Branch: `lane/tasarim`. Taban: `origin/main` @ `e172ed8` (tur 13 squash-merge
+edildikten sonra yeniden kuruldu).
+
+### Bulgu 1 — #436: ilçe hero kaynakları bütçenin üstünde, kapı görmüyor (düzeltildi)
+
+- **Kabul ölçütü 1 (kaynak <500 KB):** `Girne.webp` 1916 KB, `güzelyurt.jpg`
+  951 KB, `lefkoşa.jpeg` 761 KB, `iskele.jpg` 683 KB idi. Dördü de yeniden
+  kodlandı, **gerçek en-boy korunarak** (E2E kaynak genişliklerini pinliyor:
+  girne 3840, güzelyurt 2048, iskele 1638, lefkoşa 1920):
+  Girne 489654, güzelyurt 487863, lefkoşa 479236, iskele 498258.
+- **Kabul ölçütü 2 (kapı):** `scripts/check-frontend-source.mjs` **LANE-INFRA**
+  sahipliğinde; genişletme devredildi (#447). Bu turda kapsam, sahip olduğum
+  `tests/unit/design-tokens.test.ts` içine taşındı: **"every image an owned
+  component renders stays under the 500 KB budget"** — `src/components/**` ve
+  `src/experience/**` içindeki her `/images/...` referansını gezer, 500 KB
+  üstünü kırmızı yapar. Böylece ilçe hero'ları **ve** `unoptimized` galeri
+  fotoğrafları tek kuralla korunuyor.
+- **Kabul ölçütü 3 (mobil E2E):** `tests/**` **LANE-QA** sahipliğinde; #448'e
+  devredildi (zaten açık).
+
+### Bulgu 2 — account galerisi `unoptimized` ve iki foto 500 KB üstü (düzeltildi)
+
+- **Gözlem:** `src/components/layout/account-scene-media.tsx:112` dört slaytı
+  `unoptimized` ile basıyor; yani Next optimizer devre dışı ve **diskteki ham
+  bayt** servis ediliyor. `girne-night.webp` 601590 B, `vuni-sarayi.webp`
+  517942 B — kullanıcının gördüğü, bütçenin üstünde iki görsel.
+- **Düzeltme:** ikisi de <500 KB'a yeniden kodlandı, en-boy korundu:
+  girne-night 491362 (1440×1795), vuni-sarayi 489392 (1080×1350). Kalite
+  kaybı ölçüldü: **SSIM 0.9805 / PSNR 38.0 dB** ve **SSIM 0.9946 / PSNR 39.3 dB**
+  — gözle ayırt edilemez. Tarayıcıda 4/4 slayt `complete && naturalWidth>0`,
+  servis edilen bayt = yeni boyut (optimizer yok, kanıt birebir).
+- **Neden bu lane:** `src/components/**` sahibi LANE-TASARIM.
+
+### Micro-denetim (AUDIT.md boyutları, sahip olunan dosyalar)
+
+| Dosya | Doğruluk | Hata yolu | Yetki | Erişilebilirlik | Kontrast | RTL | Linkler | Mantık | Sınır girdi |
+|---|---|---|---|---|---|---|---|---|---|
+| `src/components/layout/account-scene-media.tsx` | ✅ | ✅ `videoError` durumu | n/a (sunum) | ✅ `aria-hidden` dekoratif, `role=group` etiketli | ✅ axe 0 | ✅ | ✅ | ✅ | ✅ |
+| `tests/unit/design-tokens.test.ts` | ✅ | ✅ guard mesajı yol+boyut | n/a | n/a | ✅ | n/a | n/a | ✅ | ✅ boş dizin/eksik dosya |
+| `src/components/home/home-experience.tsx` | ✅ 6 ilçe | ✅ | n/a | ✅ `alt=""` dekoratif | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `public/images/*.webp/jpg` | ✅ boyut <500 KB | n/a | n/a | n/a | n/a | n/a | n/a | n/a | ✅ en-boy korundu |
+
+Bakılmayan dosya yok; sahip olunan tüm yollar tarandı.
+
+### Çalıştırılan kontroller
+
+- `bun run lint` ✅ · `bun run typecheck` ✅ · `bun run check:frontend-source` ✅
+- `bun run test:unit` ✅ **741 pass / 0 fail**
+- Yeni guard **negatif test edildi**: `girne-night.webp` ve `vuni-sarayi.webp`
+  eski boyutuna döndürülünce guard gerçek boyutla kırmızı düştü; geri alınınca
+  yeşil.
+- axe-core (spec'in birebir kopyası, sistem chromium ile): **17 kontrol**
+  (en/de/fa × 5 rota mobil + de/fa masaüstü) = **0 ihlal**; mobil anasayfa
+  hero'sunda 6/6 slayt yüklü (`naturalWidth>0 && complete`).
+
+### Sahibin / sonraki lane'lerin yapması gerekenler
+
+- **LANE-INFRA (#447):** `check-frontend-source.mjs` 500 KB bütçesine tüm ilçe
+  görsellerini ekle (kapı kapsamadığı yüzeyi koruyamaz).
+- **LANE-QA (#448):** mobil (375×667) anasayfa E2E'si — her slaytta
+  `naturalWidth > 0` assert et.
+
+**Değişen dosyalar:** `public/images/Girne.webp`,
+`public/images/güzelyurt.jpg`, `public/images/iskele.jpg`,
+`public/images/lefkoşa.jpeg`, `public/images/account-gallery/girne-night.webp`,
+`public/images/account-gallery/vuni-sarayi.webp`,
+`tests/unit/design-tokens.test.ts`, `docs/lanes/05-tasarim.md` — hepsi bu lane'in
+kapsamında.
