@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 /**
@@ -699,4 +701,56 @@ test("numbered CSS counters follow the locale's numeral system", () => {
     /html\[lang="fa"\]\s+\.pwa-install-steps\s*>\s*li::before\s*\{[^}]*content:\s*counter\(pwa-step,\s*persian\);/,
     "the install step badge must use the `persian` counter style under `lang=fa`",
   );
+});
+
+/**
+ * Every image the interface points at has to fit the 500 KB budget. The gate
+ * (`scripts/check-frontend-source.mjs`) enforces it for the seven `*-hero` page
+ * images only, so a district hero or an `unoptimized` gallery photo could ship
+ * at 1.9 MB unnoticed — which is exactly what the owner reported: on a slow link
+ * the crossfade (`home-hero-photo-cycle`) runs ahead of the download and only
+ * the eager Girne slide is ever seen. Walking the owned components closes that
+ * blind spot here and hands the general fix to LANE-INFRA (#447).
+ */
+test("every image an owned component renders stays under the 500 KB budget", () => {
+  const budgetBytes = 500_000;
+  const componentsRoot = fileURLToPath(
+    new URL("../../src/components/", import.meta.url),
+  );
+  const experienceRoot = fileURLToPath(
+    new URL("../../src/experience/", import.meta.url),
+  );
+  const publicRoot = fileURLToPath(new URL("../../public", import.meta.url));
+
+  const walk = (dir: string): string[] => {
+    const found: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) found.push(...walk(full));
+      else if (/\.(tsx?|css)$/.test(entry.name)) found.push(full);
+    }
+    return found;
+  };
+
+  const referenced = new Set<string>();
+  for (const file of [...walk(componentsRoot), ...walk(experienceRoot)]) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(/["'`](\/images\/[^"'`]+)["'`]/g)) {
+      referenced.add(match[1]);
+    }
+  }
+  assert.ok(
+    referenced.size >= 6,
+    `expected the owned components to reference the district hero images, found ${referenced.size}`,
+  );
+
+  for (const asset of referenced) {
+    const path = join(publicRoot, asset);
+    const { size } = statSync(path);
+    assert.ok(
+      size < budgetBytes,
+      `${asset} is ${(size / 1024).toFixed(0)} KB; the image budget is ${budgetBytes / 1000} KB. ` +
+        "Re-encode it (keep the intrinsic width so the high-density E2E still resolves) before shipping.",
+    );
+  }
 });
