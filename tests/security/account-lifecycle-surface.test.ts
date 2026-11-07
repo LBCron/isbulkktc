@@ -46,6 +46,10 @@ const srcDir = new URL("src/", repoRoot);
 const sourceFiles = listFiles(srcDir, /\.(ts|tsx)$/);
 const source = sourceFiles.map((file) => readFileSync(file, "utf8")).join("\n");
 
+function relative(path: string): string {
+  return path.slice(path.indexOf("/src/") + 1);
+}
+
 // ---------------------------------------------------------------------------
 // 1. The kill switch is not client-writable.
 // ---------------------------------------------------------------------------
@@ -105,7 +109,30 @@ test("the write RPCs still refuse a non-active profile", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Open gap: signing in never consults the kill switch.
+// 2. Open gap: nothing can flip the kill switch in the first place.
+// ---------------------------------------------------------------------------
+
+test(
+  "an account can actually be suspended or closed",
+  { todo: "profiles.status defaults to 'active' and no migration, RPC or action ever writes another value, so suspended/closed are unreachable and the status re-checks guard a state that cannot occur (owner: LANE-SUPABASE + LANE-AUTH, #400)" },
+  () => {
+    // The column is only useful if something can move a row off `active`.
+    // A writer is an `update ... profiles ... set ... status` statement or an
+    // admin RPC that sets it; both are absent today.
+    const statusWriters = statements.filter(
+      (statement) =>
+        /\bupdate\s+public\.profiles\b/i.test(statement) &&
+        /\bstatus\s*=/i.test(statement),
+    );
+    assert.ok(
+      statusWriters.length > 0,
+      "no statement ever writes profiles.status, so 'suspended'/'closed' are dead states",
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// 3. Open gap: signing in never consults the kill switch.
 // ---------------------------------------------------------------------------
 
 test(
@@ -127,7 +154,7 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// 3. Open gap: there is no deletion path at all.
+// 4. Open gap: there is no deletion path at all.
 // ---------------------------------------------------------------------------
 
 test(
@@ -152,5 +179,33 @@ test(
         ),
       );
     assert.deepEqual(deletionRpcs, []);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// 5. Open gap: API error responses may still be shared-cacheable (#424 M-03).
+// ---------------------------------------------------------------------------
+
+test(
+  "an API route that can answer an error forbids shared caching",
+  { todo: "error responses (4xx/5xx) from /api/push/subscriptions, /api/push/dispatch and /api/email/engagement-digest carry no Cache-Control of their own, so Vercel's `public, max-age=0, must-revalidate` stands (owner: LANE-INFRA/LANE-URUN, #424/#435)" },
+  () => {
+    // #424 M-03 measured `public, max-age=0, must-revalidate` on 405/401/400
+    // responses. The route files own the success path but not the error path:
+    // `/api/email/unsubscribe`'s 400 (bad signature) still carries no `no-store`
+    // while its 200 does. A route that can return an error should say so for
+    // every response, or a CDN rule can start caching it.
+    const routePattern = /\/src\/app\/api\/.+\/route\.tsx?$/;
+    const errorStatus = /status:\s*[45]\d\d\b/;
+    const routesWithErrors = sourceFiles
+      .filter((path) => routePattern.test(path))
+      .filter((path) => errorStatus.test(readFileSync(path, "utf8")));
+    assert.ok(routesWithErrors.length >= 2, "expected API routes with error paths to be discovered");
+    const unguarded = routesWithErrors.filter((path) => !/no-store/.test(readFileSync(path, "utf8")));
+    assert.deepEqual(
+      unguarded.map(relative),
+      [],
+      "an API route can answer 4xx/5xx without forbidding shared caching",
+    );
   },
 );
