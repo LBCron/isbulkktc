@@ -1494,3 +1494,120 @@ ait). Erişilebilirlik/kontrast/RTL bu lane'de kapsam dışı (görsel yüzey yo
 - **#465** — gönderim bildirimi yok (LANE-URUN, `agent:handoff`).
 - **#461** — QR/PWA görünürlüğü (LANE-TASARIM; bu PR'a alınmadı, dosyalar başka lane'in).
 - SPF/Resend/DMARC: **#170** (zaten açık).
+
+## Tur 41 — micro-denetim: hesap yaşam döngüsü sınırı + 12-brief denetim kanıtı (#418)
+
+Bu tur iki iş yapıldı: (1) #418 "hesap kayıt + tüm hesap işlemleri + çerezler
+uçtan uca mükemmel" kapsamında **hesap yaşam döngüsü** (askıya alma / kapatma /
+silme) güvenlik sınırı ölçüldü ve kapıya bağlandı; (2) sitem yöneticisinin
+istediği **12 brief teslim denetimi** canlı+repo kanıtıyla tamamlandı.
+
+### Bulgu (kanıtlı) — hesap yaşam döngüsü
+
+**B-1 — `profiles.status` kill-switch'i istemciye kapalı (DOĞRU, kapı eklendi).**
+`public.profiles.status ∈ {active, suspended, closed}` ve neredeyse her yazma RPC'si
+önce `status = 'active'` arıyor (`create_company` → `20261013000000:318`,
+`register_push_subscription` → `20261102100000:115`). Kolon grant'i **kolon bazlı**:
+`grant update (display_name, locale) on table public.profiles` (`20261013000000:126`)
+— `status` listede yok, tablo-geneli grant yok. Yani bir kullanıcı kendi hesabını
+askıdan çıkaramaz. Bu doğru durum **regresyon kapısı** hâline getirildi.
+
+**B-2 — Giriş kill-switch'i hiç okumuyor (AÇIK, LANE-AUTH).**
+`signIn` (`src/features/identity/actions.ts:110`) yalnız `signInWithPassword` çağırıp
+`redirect` ediyor; `profiles.status` **okunmuyor** (grep: `signIn` içinde `profiles`
+= 0). `suspended`/`closed` bir hesap oturum alır ve `status='active'` isteyen
+RPC'ler dışında her şeyi yapabilir. → devir **#457 ailesi / LANE-AUTH**.
+
+**B-5 — Kill-switch'i çeviren yazar yok (AÇIK, LANE-SUPABASE+LANE-AUTH).**
+`profiles.status` varsayılanı `active` (`20261013000000:35-36`) ve **hiçbir**
+migration/RPC/action onu `active` dışına yazmıyor: `update public.profiles` dört
+yerde var, dördü de `locale`/`avatar_url`/`given_name`/`family_name` yazıyor,
+`status` değil; `admin_*` RPC listesinde (16 fonksiyon) `status` yazarı **0**.
+Yani `suspended`/`closed` **ulaşılamaz durum**: `signIn`'in okumadığı (B-2) ve
+silme yolunun olmadığı (B-3) yetmiyor — askıya alma diye bir işlem hiç yok.
+`status='active'` yeniden kontrolleri var olmayan bir durumu koruyor.
+
+**B-3 — Silme yolu hiç yok (AÇIK, LANE-SUPABASE+LANE-AUTH).**
+`delete from auth.users` / `delete from public.profiles` migration'larda **0**;
+`delete_account`/`erase_account`/`anonymize_account` RPC çağrısı **0**; hesap
+silme UI **0**. Yani `closed` durumu ulaşılamaz ve KVKK/GDPR silme hakkı karşılanmıyor.
+→ zaten açık **#400**.
+
+**Kapı.** `tests/security/account-lifecycle-surface.test.ts` (yeni, 5 test):
+status kolon-grant'i + tablo-geneli grant yasağı (gerçek kapı), iki RPC'nin
+`active` kontrolü (gerçek kapı), `signIn` status okuması (**todo**), askıya
+alma yazarı (**todo**), silme yolu (**todo**), API hata-yolu cache (**todo**). Mutasyonla kanıtlandı: grant'i
+tablo-geneli yapınca MUT1 kırmızı; `signIn`'e `from("profiles")…status` ekleyince
+todo yeşile döndü; sahte `delete_account` RPC ekleyince todo fonksiyonel olarak
+başarısız oldu; sahte `tmp_suspend_account` (status yazarı) ekleyince askıya-alma
+todo'su fonksiyonel geçti (`pass 153 / fail 1`). Hepsi geri alındı.
+
+### Bulgu (kanıtlı) — 12 brief teslim denetimi
+
+| # | Brief | Durum | Kanıt (canlı/repo) |
+|---|---|---|---|
+| 1 | Canlı destek / gerçek AI API | **YOK** | `src/features/chat/` yalnız `.gitkeep` |
+| 2 | Kayıt/giriş/hesap işlemleri | **KISMİ** | B-2/B-3/B-5 yukarıda; #416 OAuth; #400 silme+askı |
+| 3 | Aday havuzu (işveren) | **YOK** | işveren panelinde aday listesi yok; #462 |
+| 4 | QR / PWA kurulum | **VAR** | `/api/qr` svg=200 `image/svg+xml`, png=200 `image/png`; `manifest.webmanifest` 200 |
+| 5 | PWA manifest | **VAR** | `{"name":"İşBul KKTC","display":"standalone",…}` canlı |
+| 6 | E-posta teslimi (SPF/DKIM/DMARC) | **VAR** | `send.` TXT = `v=spf1 include:amazonses.com ~all`; `resend._domainkey` TXT (DKIM) mevcut; `_dmarc` `p=none` |
+| 7 | WhatsApp iletişim | **KISMİ** | `wa.me/905391316421` `?text=` ön-dolgusu yok → boş sohbet |
+| 8 | SEO / indeksleme | **VAR** | `/jobs` sitemap'te; noindex yalnız `*.vercel.app`; #163 eski |
+| 9 | Başvuru bildirimi (işveren) | **VAR** | `renderNotificationEmail` `employerAppliedSubject`= "Yeni iş ilanı başvurusu" (`email-copy.ts:144`) |
+| 10 | Şirket belgesi yükleme | **VAR** | `company-document-autofill.ts` + `company-profile-form.tsx` |
+| 11 | Legal sayfa çevirisi | **AÇIK** | #141 (6 locale aynı TR gövde) |
+| 12 | Profil gönderimi bildirimi | **YOK** | `submitCompanyProfile` mail çağırmıyor; #465 |
+
+**#424 doğrulaması (yeniden ölçüldü).** M-03'ün **repo-kontrollü** kısmı hâlâ
+açık: `/api/email/unsubscribe`'ın 200 yanıtı `no-store` taşıyor ama **aynı rotanın
+400'ü** (bozuk imza) taşımıyor; `/api/push/subscriptions` ve `/api/push/dispatch`
+hata yanıtları da kendi `Cache-Control`'ünü koymuyor, canlıda Vercel'in
+`public, max-age=0, must-revalidate`'i geçiyor. `tests/security/account-lifecycle-surface.test.ts`
+→ `an API route that can answer an error forbids shared caching` (**todo**,
+LANE-INFRA/LANE-URUN, #424/#435); bugün kırmızı, yani boş değil.
+`GET /api/build-info` canlıda
+`access-control-allow-origin: *` — ama bu **Vercel prerender** davranışı, repo kodu
+değil: depoda ACAO **0**, `force-dynamic` rotalarda (`/api/qr`, `/api/push/dispatch`)
+ACAO **yok**, `force-static` rotalarda (`/llms.txt`, `/feed.xml`,
+`/.well-known/security.txt`) **var**. Kapı `tests/security/api-response-surface.test.ts`
+zaten pinliyor. Sayfa rotalarında `PUT/DELETE` → 200 (framework; Server Actions
+POST'u bozulmasın diye blanket reddi yok). Hata yolu `404` → `private, no-cache,
+no-store` (doğru). → **#424 M-01/M-02/M-04 platform**, repo işi yok; **M-03'ün repo-kontrollü kısmı açık** (yukarıdaki todo).
+
+**B-2 ek kanıt (brief 2 kök neden).** `supabase/templates/confirmation.html:57,58`
+linki `{{ .ConfirmationURL }}` ile kuruyor. Resmî Supabase dokümanı
+([Email Templates → Limitations → Email prefetching](https://supabase.com/docs/guides/auth/auth-email-templates))
+bunu tam olarak açıklıyor: Defender "Safe Links" gibi ön-tarayıcılar
+`ConfirmationURL`'i **anında tüketir** → "Token has expired or is invalid".
+Öneri: `{{ .TokenHash }}` ile kendi uç noktasına link veya OTP. → LANE-AUTH işi.
+
+### Kapı sonucu
+
+`lint` / `typecheck` / `check:frontend-source` temiz.
+`test:security` **165 test / 154 pass / 0 fail / 11 todo** (159→165).
+`test:unit` **743 / 741 pass / 2 todo** (değişmedi).
+
+### Bakılmayan
+
+Taranan: `tests/security/**`, `src/features/identity/actions.ts`,
+`supabase/migrations/20261013000000`, `20261014120000`, `20261020190500`,
+`20261022130000`, `supabase/templates/*.html`, `supabase/functions/_shared/email-copy.ts`,
+`email-render.ts`, `next.config.ts`, `docs/threat-model.md`, `docs/data-retention.md`.
+`src/features/chat/**` (boş), `src/features/candidates/**`, `src/components/analytics/**`
+ve diğer `supabase/**` bu turda **bakılmadı** (sahiplerine ait).
+Erişilebilirlik/kontrast/RTL bu lane'de kapsam dışı (görsel yüzey yok).
+
+### Devir (kendi alanım dışı)
+
+- **#400** — hesap silme **ve askıya alma** yok (LANE-SUPABASE+LANE-AUTH); B-3/B-5
+  bunu yeniden doğruladı.
+- **#467** — `profiles.status` kill-switch'i ölü (askıya alma yazarı yok); B-5'in
+  devri, `agent:handoff` (LANE-SUPABASE + LANE-AUTH).
+- **#457** — auth hız sınırı; B-2 (`signIn` status kapısı) aynı lane'e eklenmeli.
+- **#465** — gönderim bildirimi yok (LANE-URUN).
+- **#462** — aday havuzu yok (LANE-SUPABASE+LANE-URUN).
+- **#461** — QR görünürlüğü (LANE-TASARIM).
+- **#141** — legal sayfa çevirisi (LANE-İÇERİK).
+- WhatsApp `?text=` ön-dolgusu — `src/features/editorial/brand-pages.tsx:191` +
+  `src/lib/social-links.ts:26` LANE-URUN/İÇERİK dizininde; bu lane yazmaz.
